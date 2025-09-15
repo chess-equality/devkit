@@ -1,0 +1,34 @@
+services:
+  # Disable the base dev-agent from kit/compose.yml for this overlay.
+  dev-agent:
+    profiles: [disabled]
+
+  # Rename 'app' to your service name if desired.
+  app:
+    build:
+      # IMPORTANT: path is relative to devkit/kit/compose.yml, not this file.
+      context: ../overlays/_template
+      dockerfile: Dockerfile
+    image: local/dev-agent:template
+    command: ["bash", "-lc", "sleep infinity"]
+    stdin_open: true
+    tty: true
+    environment:
+      # Proxy config inherited by default; kept here for clarity
+      - HTTP_PROXY=http://tinyproxy:8888
+      - HTTPS_PROXY=http://tinyproxy:8888
+      - NO_PROXY=localhost,127.0.0.1,tinyproxy
+    working_dir: /workspace
+    depends_on:
+      tinyproxy:
+        condition: service_healthy
+    networks:
+      - dev-internal
+    volumes:
+      # Mount your repo into /workspace (rw)
+      - ../../path-to-your-repo:/workspace:rw
+
+networks:
+  dev-internal:
+    external: true
+

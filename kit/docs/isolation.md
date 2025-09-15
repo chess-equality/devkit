@@ -20,13 +20,13 @@ On the host (under the same dev root):
 ```
 /dev
   /ouroboros-ide                     # primary clone (origin)
-  /agent2/ouroboros-ide              # worktree for agent #2
-  /agent3/ouroboros-ide              # worktree for agent #3
+  /agent-worktrees/agent2/ouroboros-ide  # worktree for agent #2
+  /agent-worktrees/agent3/ouroboros-ide  # worktree for agent #3
   ...
 ```
 
 - Create worktrees from the primary clone:
-  - `cd ouroboros-ide && git worktree add ../agent2/ouroboros-ide <branch>`
+  - `cd ouroboros-ide && git worktree add ../agent-worktrees/agent2/ouroboros-ide <branch>`
   - Optionally create branches per agent (e.g., `agent2/main`).
 
 ## Container Mapping
@@ -37,10 +37,10 @@ Two options (not mutually exclusive):
 - Mount the whole dev root at `/workspaces/dev`.
 - Exec into each subpath per agent:
   - `scripts/devkit -p dev-all exec-cd 1 ouroboros-ide bash`
-  - `scripts/devkit -p dev-all exec-cd 2 agent2/ouroboros-ide bash`
+  - `scripts/devkit -p dev-all exec-cd 2 agent-worktrees/agent2/ouroboros-ide bash`
 - Set per‑agent HOME via codex wrapper or env when launching commands:
   - Agent 1: `HOME=/workspaces/dev/ouroboros-ide/.devhome-agent1`
-  - Agent 2: `HOME=/workspaces/dev/agent2/.devhome-agent2`
+  - Agent 2: `HOME=/workspaces/dev/agent-worktrees/agent2/.devhome-agent2`
 
 2) per-agent overlays (polished follow‑up)
 - Create tiny overlays `overlays/agent2` and `overlays/agent3` that mount the worktree path at `/workspace`.
@@ -67,17 +67,17 @@ Host github.com
 ## tmux Integration
 
 - tmux-shells N auto-runs `ssh-setup` for each index already.
-- Enhancement (planned): detect dev-all and set per‑agent HOME env for each window (e.g., export `HOME=/workspaces/dev/agentN/.devhome-agentN`).
+- Enhancement (planned): detect dev-all and set per‑agent HOME env for each window (e.g., export `HOME=/workspaces/dev/agent-worktrees/agentN/.devhome-agentN`).
 
 ## Transition Steps
 
 1) Pilot with dev-all + worktrees
-- Create `agent2` (and agent3 if needed) worktrees.
+- Create `agent2` (and agent3 if needed) worktrees under `agent-worktrees/agentN`.
 - Use `exec-cd` to enter each repo path.
 - Manually set Codex HOME per session if needed (wrapper picks up `/workspace/.devhome` by default).
 
 2) Add per‑agent overlays (optional)
-- Create `overlays/agent2/compose.override.yml` pointing to `../agent2/ouroboros-ide`.
+- Create `overlays/agent2/compose.override.yml` pointing to `../agent-worktrees/agent2/ouroboros-ide`.
 - Set `DEV_HOME` or bake codex wrapper to use `/workspace/.devhome`.
 
 3) Add helpers (optional)

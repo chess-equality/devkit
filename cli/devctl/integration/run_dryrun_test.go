@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	pth "devkit/cli/devctl/internal/paths"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +52,8 @@ func TestRun_DryRun(t *testing.T) {
 	wants := []string{
 		"compose -f ",
 		" up -d --remove-orphans --scale dev-agent=2",
-		" exec --index 1 dev-agent",
+		"docker exec -t devkit-devall-dev-agent-1",
+		"/workspaces/dev/" + pth.AgentWorktreesDir + "/agent2/testrepo",
 	}
 	for _, w := range wants {
 		if !strings.Contains(out, w) {

@@ -127,7 +127,7 @@ Declarative orchestration (new):
       - index: 2
         project: dev-all
         service: dev-agent
-        path: agent2/dumb-onion-hax
+        path: agent-worktrees/agent2/dumb-onion-hax
         name: doh-wt-2
       - index: 1
         project: pokeemerald

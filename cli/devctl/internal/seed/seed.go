@@ -1,5 +1,10 @@
 package seed
 
+import (
+	"fmt"
+	"strings"
+)
+
 // WaitForHostMountsScript returns a script that waits (up to ~10s) for
 // /var/host-codex or /var/auth.json to become available.
 func WaitForHostMountsScript() string {
@@ -41,4 +46,46 @@ func BuildSeedScripts(home string) []string {
 		FallbackCopyAuthScript(home),
 		TightenPermsScript(home),
 	}
+}
+
+// AnchorConfig describes how to anchor HOME for a container and optionally seed Codex.
+type AnchorConfig struct {
+	// Anchor is the symlink path exposed to tooling, e.g. /workspace/.devhome.
+	Anchor string
+	// Base is the directory holding per-container homes, e.g. /workspace/.devhomes.
+	Base string
+	// SeedCodex indicates whether Codex credentials should be copied after relinking.
+	SeedCodex bool
+}
+
+// BuildAnchorScripts returns bash snippets that (1) ensure the anchor symlink points at the
+// container-unique directory and (2) optionally seed Codex credentials beneath it.
+func BuildAnchorScripts(cfg AnchorConfig) []string {
+	anchor := strings.TrimSpace(cfg.Anchor)
+	base := strings.TrimSpace(cfg.Base)
+	if anchor == "" || base == "" {
+		return nil
+	}
+	script := fmt.Sprintf(
+		"cid=$(hostname); target=\"%s\"/\"$cid\"; mkdir -p \"$target/.ssh\" \"$target/.codex/rollouts\" \"$target/.cache\" \"$target/.config\" \"$target/.local\"; chmod 700 \"$target/.ssh\"; ln -sfn \"$target\" \"%s\"",
+		base, anchor,
+	)
+	steps := []string{script}
+	if cfg.SeedCodex {
+		steps = append(steps, BuildSeedScripts(anchor)...)
+	}
+	return steps
+}
+
+// JoinScripts joins bash snippets with a " ; " delimiter, trimming whitespace.
+func JoinScripts(scripts []string) string {
+	parts := make([]string, 0, len(scripts))
+	for _, sc := range scripts {
+		s := strings.TrimSpace(sc)
+		if s == "" {
+			continue
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "; ")
 }

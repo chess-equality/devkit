@@ -1,0 +1,10 @@
+workspace: ../../ouroboros-static-front-end
+service: frontend
+env:
+  NODE_ENV: development
+  GATSBY_TELEMETRY_DISABLED: "1"
+hooks:
+  # Install dependencies so local gatsby binary is available via npm scripts
+  warm: npm ci
+  # Optional: produce a production build during maintenance
+  maintain: npm run build

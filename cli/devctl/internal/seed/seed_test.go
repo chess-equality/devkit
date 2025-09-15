@@ -26,6 +26,31 @@ func TestBuildSeedScripts(t *testing.T) {
 	}
 }
 
+func TestBuildAnchorScripts(t *testing.T) {
+	cfg := AnchorConfig{
+		Anchor:    "/workspace/.devhome",
+		Base:      "/workspace/.devhomes",
+		SeedCodex: true,
+	}
+	scripts := BuildAnchorScripts(cfg)
+	if len(scripts) < 2 {
+		t.Fatalf("expected anchor script plus seeding, got %d", len(scripts))
+	}
+	first := scripts[0]
+	for _, frag := range []string{"cid=$(hostname)", "/workspace/.devhomes"} {
+		if !contains(first, frag) {
+			t.Fatalf("anchor script missing %q: %s", frag, first)
+		}
+	}
+	joined := JoinScripts(scripts)
+	if !contains(joined, first) {
+		t.Fatalf("joined scripts missing anchor: %s", joined)
+	}
+	if !contains(joined, "rm -rf '/workspace/.devhome/.codex'") {
+		t.Fatalf("joined scripts missing codex reset: %s", joined)
+	}
+}
+
 func contains(hay, needle string) bool {
 	return len(hay) >= len(needle) && (len(needle) == 0 || indexOf(hay, needle) >= 0)
 }

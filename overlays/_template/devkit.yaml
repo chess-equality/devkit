@@ -1,0 +1,11 @@
+workspace: ../../path-to-your-repo
+service: app
+
+# Optional: environment to inject into your container
+env: {}
+
+# Optional hooks executed inside the container
+hooks:
+  warm: ""
+  maintain: ""
+

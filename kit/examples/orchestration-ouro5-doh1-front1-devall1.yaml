@@ -1,0 +1,71 @@
+session: devkit_ouro-mixed
+
+overlays:
+  # Single dev-all overlay providing 8 agents; also prepare 5 worktrees for ouroboros-ide.
+  - project: dev-all
+    service: dev-agent
+    count: 8
+    profiles: dns
+    compose_project: devkit-devall
+    worktrees:
+      repo: ouroboros-ide
+      count: 5
+      # base_branch and branch_prefix default to overlays/dev-all/devkit.yaml
+
+  # One Node-based agent for the static front end (builds its image).
+  - project: ouroboros-static-front-end
+    service: frontend
+    count: 1
+    profiles: dns
+    # Share the same compose project so tinyproxy/dns are reused without conflicts
+    compose_project: devkit-devall
+    build: true
+
+windows:
+  # ouroboros-ide (5) — each window targets a distinct worktree under dev-all
+  - index: 1
+    project: dev-all
+    service: dev-agent
+    path: ouroboros-ide
+    name: ouro-1
+  - index: 2
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent2/ouroboros-ide
+    name: ouro-2
+  - index: 3
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent3/ouroboros-ide
+    name: ouro-3
+  - index: 4
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent4/ouroboros-ide
+    name: ouro-4
+  - index: 5
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent5/ouroboros-ide
+    name: ouro-5
+
+  # dumb-onion-hax (1) — single window into the primary working copy under dev-all
+  - index: 6
+    project: dev-all
+    service: dev-agent
+    path: dumb-onion-hax
+    name: doh-1
+
+  # static front end (1) — uses its own overlay and image
+  - index: 7
+    project: ouroboros-static-front-end
+    service: frontend
+    path: /workspace
+    name: front-1
+
+  # dev-all (1) — a general-purpose shell at the dev root on agent 8
+  - index: 8
+    project: dev-all
+    service: dev-agent
+    path: /workspaces/dev
+    name: dev-all-1

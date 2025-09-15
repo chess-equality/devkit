@@ -1,0 +1,51 @@
+services:
+  # Disable the base dev-agent from kit/compose.yml for this overlay.
+  # Without this, compose will try to start dev-agent and pull
+  # image devkit/dev-agent:base, which is not available.
+  dev-agent:
+    profiles:
+      - disabled
+
+  frontend:
+    build:
+      # Compose resolves relative paths against the first -f file (kit/compose.yml),
+      # so use a path relative to that file for correct context.
+      context: ../overlays/ouroboros-static-front-end
+      dockerfile: Dockerfile
+    image: local/dev-agent:node18-git
+    command: ["bash", "-lc", "sleep infinity"]
+    stdin_open: true
+    tty: true
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - GATSBY_TELEMETRY_DISABLED=${GATSBY_TELEMETRY_DISABLED:-1}
+      - PUPPETEER_SKIP_DOWNLOAD=1
+      - NPM_CONFIG_FUND=false
+      - NPM_CONFIG_AUDIT=false
+      # Proxy config inherited from base compose; kept here for clarity
+      - HTTP_PROXY=http://tinyproxy:8888
+      - HTTPS_PROXY=http://tinyproxy:8888
+      - NO_PROXY=localhost,127.0.0.1,tinyproxy
+    working_dir: /workspace
+    depends_on:
+      tinyproxy:
+        condition: service_healthy
+      dns:
+        condition: service_started
+    dns:
+      - ${DEVKIT_DNS_IP:-172.30.10.3}
+    networks:
+      - dev-internal
+    volumes:
+      - ../../ouroboros-static-front-end:/workspace:rw
+      # Cache directories for faster installs
+      - npm-cache:/home/node/.npm
+      - yarn-cache:/home/node/.cache/yarn
+      # Required: mount Codex credentials from host (no best-effort)
+      - ${HOST_CODEX_DIR:-${HOME}/.codex}:/var/host-codex:ro
+      - ${HOST_CODEX_FILE:-${HOME}/.codex/auth.json}:/var/auth.json:ro
+      - tmpfs:/tmp
+
+volumes:
+  npm-cache:
+  yarn-cache:

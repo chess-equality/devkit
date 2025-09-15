@@ -3,6 +3,7 @@ package worktrees
 import (
 	"context"
 	"devkit/cli/devctl/internal/execx"
+	"devkit/cli/devctl/internal/paths"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,8 +75,13 @@ func Setup(devkitRoot, repo string, n int, baseBranch, branchPrefix string, dry 
 		return err
 	}
 
+	worktreesRoot := filepath.Join(devRoot, paths.AgentWorktreesDir)
+	if !dry {
+		_ = os.MkdirAll(worktreesRoot, 0755)
+	}
+
 	for i := 2; i <= n; i++ {
-		parent := filepath.Join(devRoot, fmt.Sprintf("%s%d", branchPrefix, i))
+		parent := filepath.Join(worktreesRoot, fmt.Sprintf("%s%d", branchPrefix, i))
 		if !dry {
 			_ = os.MkdirAll(parent, 0755)
 		}

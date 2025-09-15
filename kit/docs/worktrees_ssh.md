@@ -15,7 +15,7 @@ This guide shows how to run multiple isolated dev agents using Git worktrees and
    - Auto‑runs `ssh-setup` for each agent.
    - Per window:
      - Agent 1: `/workspaces/dev/ouroboros-ide`, `HOME=/workspaces/dev/ouroboros-ide/.devhome-agent1`
-     - Agent 2: `/workspaces/dev/agent2/ouroboros-ide`, `HOME=/workspaces/dev/agent2/.devhome-agent2`
+     - Agent 2: `/workspaces/dev/agent-worktrees/agent2/ouroboros-ide`, `HOME=/workspaces/dev/agent-worktrees/agent2/.devhome-agent2`
 
 ## SSH (GitHub) notes
 - `ssh-setup` copies your host key and writes a proxy‑aware SSH config (port 443 via tinyproxy).
