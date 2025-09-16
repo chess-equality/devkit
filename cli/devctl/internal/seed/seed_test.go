@@ -33,21 +33,23 @@ func TestBuildAnchorScripts(t *testing.T) {
 		SeedCodex: true,
 	}
 	scripts := BuildAnchorScripts(cfg)
-	if len(scripts) < 2 {
-		t.Fatalf("expected anchor script plus seeding, got %d", len(scripts))
+	if len(scripts) != 1 {
+		t.Fatalf("expected single combined script, got %d", len(scripts))
 	}
-	first := scripts[0]
-	for _, frag := range []string{"cid=$(hostname)", "/workspace/.devhomes"} {
-		if !contains(first, frag) {
-			t.Fatalf("anchor script missing %q: %s", frag, first)
+	sc := scripts[0]
+	for _, frag := range []string{
+		"target=\"/workspace/.devhomes/$(hostname)\"",
+		"ln -sfn \"$target\" \"/workspace/.devhome\"",
+		"rm -rf \"$target/.codex\"",
+		"cp -a /var/host-codex/. \"$target/.codex/\"",
+	} {
+		if !contains(sc, frag) {
+			t.Fatalf("combined script missing %q: %s", frag, sc)
 		}
 	}
 	joined := JoinScripts(scripts)
-	if !contains(joined, first) {
-		t.Fatalf("joined scripts missing anchor: %s", joined)
-	}
-	if !contains(joined, "rm -rf '/workspace/.devhome/.codex'") {
-		t.Fatalf("joined scripts missing codex reset: %s", joined)
+	if !contains(joined, sc) {
+		t.Fatalf("joined scripts missing combined anchor script: %s", joined)
 	}
 }
 

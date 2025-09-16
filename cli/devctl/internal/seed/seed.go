@@ -59,22 +59,42 @@ type AnchorConfig struct {
 }
 
 // BuildAnchorScripts returns bash snippets that (1) ensure the anchor symlink points at the
-// container-unique directory and (2) optionally seed Codex credentials beneath it.
+// container-unique directory and (2) optionally seed Codex credentials beneath it. The seeding
+// work operates directly on the resolved target (instead of the shared symlink) so multiple
+// containers can run it concurrently without clobbering each other's state.
 func BuildAnchorScripts(cfg AnchorConfig) []string {
 	anchor := strings.TrimSpace(cfg.Anchor)
 	base := strings.TrimSpace(cfg.Base)
 	if anchor == "" || base == "" {
 		return nil
 	}
-	script := fmt.Sprintf(
-		"cid=$(hostname); target=\"%s\"/\"$cid\"; mkdir -p \"$target/.ssh\" \"$target/.codex/rollouts\" \"$target/.cache\" \"$target/.config\" \"$target/.local\"; chmod 700 \"$target/.ssh\"; ln -sfn \"$target\" \"%s\"",
-		base, anchor,
-	)
-	steps := []string{script}
-	if cfg.SeedCodex {
-		steps = append(steps, BuildSeedScripts(anchor)...)
+	parts := []string{
+		"set -e",
+		fmt.Sprintf("target=\"%s/$(hostname)\"", base),
+		"mkdir -p \"$target/.ssh\" \"$target/.cache\" \"$target/.config\" \"$target/.local\"",
+		"chmod 700 \"$target/.ssh\"",
+		fmt.Sprintf("ln -sfn \"$target\" %s", shQuote(anchor)),
 	}
-	return steps
+	if cfg.SeedCodex {
+		parts = append(parts,
+			WaitForHostMountsScript(),
+			"rm -rf \"$target/.codex\"",
+			"mkdir -p \"$target/.codex\" \"$target/.codex/rollouts\" \"$target/.cache\" \"$target/.config\" \"$target/.local\"",
+			"if [ -d /var/host-codex ]; then cp -a /var/host-codex/. \"$target/.codex/\"; fi",
+			"if [ ! -f \"$target/.codex/auth.json\" ] && [ -r /var/auth.json ]; then cp -f /var/auth.json \"$target/.codex/auth.json\"; fi",
+			"if [ -f \"$target/.codex/auth.json\" ]; then chmod 600 \"$target/.codex/auth.json\"; fi",
+		)
+	}
+	return []string{strings.Join(parts, "; ")}
+}
+
+// shQuote provides the minimal quoting needed for simple POSIX-safe paths.
+func shQuote(path string) string {
+	if !strings.ContainsAny(path, " '\"$") {
+		return fmt.Sprintf("\"%s\"", path)
+	}
+	replacer := strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "$", "\\$", "`", "\\`")
+	return "\"" + replacer.Replace(path) + "\""
 }
 
 // JoinScripts joins bash snippets with a " ; " delimiter, trimming whitespace.

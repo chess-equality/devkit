@@ -8,6 +8,9 @@ deb.nodesource.com
 registry.npmjs.org
 registry.npmjs.com
 nodejs.org
+cdn.contentful.com
+pypi.org
+files.pythonhosted.org
 repo1.maven.org
 repo.scala-sbt.org
 oss.sonatype.org
