@@ -43,10 +43,11 @@ Dev Kit — Base Kit Details
 
 - Build Go CLI: `cd devkit/cli/devctl && make build` (outputs `devkit/kit/bin/devctl`).
 - Unit tests: `cd devkit/cli/devctl && go test ./...`.
-- Dry‑run preview: append `--dry-run` to print `docker`/`tmux` commands without executing.
+- Dry-run preview: append `--dry-run` to print `docker`/`tmux` commands without executing.
   - Layout only: `devkit/kit/scripts/devkit --dry-run tmux-apply-layout --file devkit/kit/examples/tmux.yaml`
   - Orchestration: `devkit/kit/scripts/devkit --dry-run layout-apply --file devkit/kit/examples/orchestration.yaml`
   - Generate orchestration from running containers: `devkit/kit/scripts/devkit layout-generate --service dev-agent --output /tmp/orchestration.yaml`
+- Per-agent SBT cache check: `devkit/kit/tests/per-agent-sbt/run-smoke.sh` spins up two agents and asserts `/home/dev/.sbt` points at `/workspace/.devhomes/<hostname>/.sbt`.
 - Useful env vars:
   - `DEVKIT_ROOT`: override devkit root (used by tests).
   - `DEVKIT_NO_TMUX=1`: skip tmux integration (non‑interactive environments).
@@ -61,6 +62,7 @@ Dev Kit — Base Kit Details
 
 Further reading
 - Mixed overlays + frontend notes: overlay-front-end-notes.md
+- Postgres test broker plan: postgres-broker-plan.md — policy layer for Postgres-only Docker access.
   - Credential pool (opt‑in; defaults off):
     - `DEVKIT_CODEX_CRED_MODE=host|pool` (default `host`)
     - `DEVKIT_CODEX_POOL_DIR=/abs/path/to/pool` (host path; required when `pool`)

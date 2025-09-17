@@ -2,6 +2,35 @@ workspace: ../../ouroboros-ide
 env:
   AWS_PROFILE: codex
 hooks:
-  warm: sbt -v update
-  maintain: sbt compile
-
+  warm: |
+    set -euo pipefail
+    host=$(hostname)
+    base=/workspace/.devhomes
+    target="${base}/${host}"
+    mkdir -p "${target}/.ssh" "${target}/.cache" "${target}/.config" "${target}/.local" "${target}/.sbt"
+    chmod 700 "${target}/.ssh"
+    ln -sfn "${target}" /workspace/.devhome
+    if [ -d /home/dev/.ivy2 ]; then ln -sfn /home/dev/.ivy2 "${target}/.ivy2"; fi
+    mkdir -p "${target}/.cache"
+    if [ -d /home/dev/.cache/coursier ]; then ln -sfn /home/dev/.cache/coursier "${target}/.cache/coursier"; fi
+    if [ -e /home/dev/.sbt ] || [ -L /home/dev/.sbt ]; then rm -rf /home/dev/.sbt; fi
+    ln -sfn "${target}/.sbt" /home/dev/.sbt
+    export HOME=/workspace/.devhome
+    export SBT_GLOBAL_BASE="${HOME}/.sbt"
+    sbt -v update
+  maintain: |
+    set -euo pipefail
+    host=$(hostname)
+    base=/workspace/.devhomes
+    target="${base}/${host}"
+    mkdir -p "${target}/.ssh" "${target}/.cache" "${target}/.config" "${target}/.local" "${target}/.sbt"
+    chmod 700 "${target}/.ssh"
+    ln -sfn "${target}" /workspace/.devhome
+    if [ -d /home/dev/.ivy2 ]; then ln -sfn /home/dev/.ivy2 "${target}/.ivy2"; fi
+    mkdir -p "${target}/.cache"
+    if [ -d /home/dev/.cache/coursier ]; then ln -sfn /home/dev/.cache/coursier "${target}/.cache/coursier"; fi
+    if [ -e /home/dev/.sbt ] || [ -L /home/dev/.sbt ]; then rm -rf /home/dev/.sbt; fi
+    ln -sfn "${target}/.sbt" /home/dev/.sbt
+    export HOME=/workspace/.devhome
+    export SBT_GLOBAL_BASE="${HOME}/.sbt"
+    sbt compile

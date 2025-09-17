@@ -6,7 +6,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bash git openssh-client ca-certificates netcat-openbsd \
-      python3 python3-venv python3-pip curl \
+      python3 python3-venv python3-pip curl vim \
  && rm -rf /var/lib/apt/lists/*
 
 # Install uv (provides `uv` and `uvx`) to /usr/local/bin

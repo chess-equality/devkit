@@ -39,7 +39,11 @@ func TestBuildAnchorScripts(t *testing.T) {
 	sc := scripts[0]
 	for _, frag := range []string{
 		"target=\"/workspace/.devhomes/$(hostname)\"",
+		"dev_home_ok=0; if mkdir -p /home/dev 2>/dev/null; then dev_home_ok=1; elif [ -d /home/dev ]; then dev_home_ok=1; fi",
 		"ln -sfn \"$target\" \"/workspace/.devhome\"",
+		"mkdir -p \"$target/.sbt\"",
+		"if [ \"$dev_home_ok\" = 1 ] && [ -n \"${DOCKER_HOST:-}\" ]; then printf 'docker.host=%s\\n' \"$DOCKER_HOST\" > \"$target/.testcontainers.properties\"; ln -sfn \"$target/.testcontainers.properties\" /home/dev/.testcontainers.properties; fi",
+		"ln -sfn \"$target/.sbt\" /home/dev/.sbt",
 		"rm -rf \"$target/.codex\"",
 		"cp -a /var/host-codex/. \"$target/.codex/\"",
 	} {

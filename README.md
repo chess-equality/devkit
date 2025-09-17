@@ -26,6 +26,10 @@ Essentials (batteries-included paths):
 - Scale and sync tmux windows: `devkit/kit/scripts/devkit scale 5 --tmux-sync`.
 - Per-agent SSH over 443: `devkit/kit/scripts/devkit ssh-setup --index 1` then `ssh-test 1`.
 
+Tooling caches:
+- SBT now writes to each agent's anchored home (`/workspace/.devhome/.sbt` or `/workspaces/dev/.devhome/.sbt` under `dev-all`) via `SBT_GLOBAL_BASE`. Ivy (`/home/dev/.ivy2`) and coursier (`/home/dev/.cache/coursier`) remain shared volumes to reuse downloaded artifacts.
+- Verify the setup end-to-end: `devkit/kit/tests/per-agent-sbt/run-smoke.sh` spins up two codex agents and checks that each container's `/home/dev/.sbt` resolves to its own anchor.
+
 Worktrees (isolated branches per agent, dev-all overlay):
 - Defaults live in `overlays/dev-all/devkit.yaml` (repo, agents, base_branch, branch_prefix).
 - Bootstrap end-to-end: `devkit/kit/scripts/devkit -p dev-all bootstrap` (uses defaults) or `bootstrap ouroboros-ide 3`.
@@ -167,6 +171,10 @@ Retrospectives and contributor guidance:
 Retrospective: Journey & Lessons
 - Summary of the migration, networking fixes, Codex seeding/env work, tests, and next steps.
 - See: `kit/docs/journey-retrospective.md`.
+
+Postgres test broker plan
+- Restricted Docker endpoint design for integration tests that require Postgres.
+- See: `kit/docs/postgres-broker-plan.md`.
 
 
 Proposal: Bash → Go CLI Migration

@@ -8,10 +8,10 @@ services:
       - AWS_CONFIG_FILE=/workspace/.aws/config
       - AWS_PROFILE=${AWS_PROFILE:-codex}
       - JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=tinyproxy -Dhttp.proxyPort=8888 -Dhttps.proxyHost=tinyproxy -Dhttps.proxyPort=8888 -Djava.net.useSystemProxies=true
+      - SBT_GLOBAL_BASE=/workspace/.devhome/.sbt
     volumes:
       - ../../dumb-onion-hax:/workspace:rw
       - ivy2-cache:/home/dev/.ivy2
-      - sbt-cache:/home/dev/.sbt
       - coursier-cache:/home/dev/.cache/coursier
       - devkit-auth:/home/dev/.codex
       # Optional: mount host Codex config dir for seeding auth.json

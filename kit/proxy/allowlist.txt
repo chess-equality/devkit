@@ -9,6 +9,7 @@ registry.npmjs.org
 registry.npmjs.com
 nodejs.org
 cdn.contentful.com
+api.contentful.com
 pypi.org
 files.pythonhosted.org
 repo1.maven.org

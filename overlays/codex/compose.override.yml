@@ -9,7 +9,7 @@ services:
         INSTALL_CODEX: "${INSTALL_CODEX:-true}"
         INSTALL_CLAUDE: "${INSTALL_CLAUDE:-true}"
         JDK_VERSION: "${JDK_VERSION:-17}"
-        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.36.0}"
+        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.38.0}"
         CODEX_ASSET: "${CODEX_ASSET:-codex-x86_64-unknown-linux-musl.tar.gz}"
         CODEX_SHA256: "${CODEX_SHA256:-}"
         CLAUDE_VERSION: "${CLAUDE_VERSION:-latest}"
@@ -21,13 +21,46 @@ services:
       - AWS_CONFIG_FILE=/workspace/.aws/config
       - AWS_PROFILE=${AWS_PROFILE:-codex}
       - JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=tinyproxy -Dhttp.proxyPort=8888 -Dhttps.proxyHost=tinyproxy -Dhttps.proxyPort=8888 -Djava.net.useSystemProxies=true
+      - SBT_GLOBAL_BASE=/workspace/.devhome/.sbt
+      - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
     volumes:
       - ../../ouroboros-ide:/workspace:rw
       - ivy2-cache:/home/dev/.ivy2
-      - sbt-cache:/home/dev/.sbt
       - coursier-cache:/home/dev/.cache/coursier
       - devkit-auth:/home/dev/.codex
       # Optional: mount host Codex config dir for seeding auth.json
       - ${HOST_CODEX_DIR:-${HOME}/.codex}:/var/host-codex:ro
       - ${HOST_CODEX_FILE:-${HOME}/.codex/auth.json}:/var/auth.json:ro
       - tmpfs:/tmp
+      - broker-run:/broker-run
+    depends_on:
+      postgres-broker:
+        condition: service_started
+
+  postgres-broker:
+    build:
+      context: ../brokers/postgres-broker
+      dockerfile: Dockerfile
+    image: devkit/postgres-broker:dev
+    user: "0:0"
+    environment:
+      - BROKER_LISTEN=unix:///broker-run/postgres-broker.sock
+      - BROKER_UPSTREAM=/var/run/docker.sock
+      - BROKER_ALLOWED_IMAGE=${BROKER_ALLOWED_IMAGE:-postgres}
+      - BROKER_ALLOWED_TAG=${BROKER_ALLOWED_TAG:-latest}
+      - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-false}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    volumes:
+      - broker-run:/broker-run
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - dev-internal
+
+volumes:
+  broker-run:

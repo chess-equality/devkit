@@ -3,7 +3,7 @@ FROM node:20-bullseye
 ARG INSTALL_CODEX=true
 ARG INSTALL_CLAUDE=true
 ARG CLAUDE_INSTALL_TIMEOUT=1200
-ARG CODEX_VERSION="rust-v0.36.0"
+ARG CODEX_VERSION="rust-v0.38.0"
 ARG CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
 ARG CODEX_SHA256=""
 
@@ -14,7 +14,7 @@ SHELL ["/bin/bash","-lc"]
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       git openssh-client ca-certificates netcat-openbsd \
-      curl jq ripgrep tmux \
+      curl jq ripgrep tmux vim \
       python3 python3-venv python3-pip \
  && rm -rf /var/lib/apt/lists/*
 

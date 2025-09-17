@@ -52,7 +52,7 @@ func TestRun_DryRun(t *testing.T) {
 	wants := []string{
 		"compose -f ",
 		" up -d --remove-orphans --scale dev-agent=2",
-		"docker exec -t devkit-devall-dev-agent-1",
+		"docker exec -t devkit-devall-dev-agent-1 bash -lc",
 		"/workspaces/dev/" + pth.AgentWorktreesDir + "/agent2/testrepo",
 	}
 	for _, w := range wants {
