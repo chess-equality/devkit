@@ -29,23 +29,23 @@ type OverlayConfig struct {
 	Hooks    Hooks    `yaml:"hooks"`
 	Defaults Defaults `yaml:"defaults"`
 	// Default service name for this overlay (e.g., dev-agent, frontend)
-	Service  string   `yaml:"service"`
+	Service string `yaml:"service"`
 }
 
 // ReadHooks parses overlays/<project>/devkit.yaml and returns warm/maintain hooks.
 // It ignores other fields for backwards compatibility with existing callers.
-func ReadHooks(root, project string) (Hooks, error) {
-	cfg, _ := ReadAll(root, project)
+func ReadHooks(overlaysRoot, project string) (Hooks, error) {
+	cfg, _ := ReadAll(overlaysRoot, project)
 	return cfg.Hooks, nil
 }
 
 // ReadAll parses overlays/<project>/devkit.yaml and returns the full overlay config.
-func ReadAll(root, project string) (OverlayConfig, error) {
+func ReadAll(overlaysRoot, project string) (OverlayConfig, error) {
 	var out OverlayConfig
 	if project == "" {
 		return out, nil
 	}
-	path := filepath.Join(root, "overlays", project, "devkit.yaml")
+	path := filepath.Join(overlaysRoot, project, "devkit.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return out, nil

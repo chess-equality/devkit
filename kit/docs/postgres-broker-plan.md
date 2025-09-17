@@ -1,0 +1,51 @@
+# Postgres Test Broker Plan
+
+## Intent
+- Provide Scala integration tests with a Docker endpoint that only permits the blessed Postgres image required for Liquibase and Skunk validation.
+- Preserve the dual-network sandbox guarantees: agents stay on `dev-internal`, egress still traverses the proxy, and the broker never joins `dev-egress`.
+- Keep test code unchanged; clients continue to speak the standard Docker API/CLI while the broker enforces policy.
+
+## Constraints
+- Direct access to the Docker daemon is root-equivalent; every call must be explicitly inspected and filtered.
+- The devkit runs with proxy-regulated networking and may use rootless or user-namespace remapped Docker hosts.
+- CI exercises must remain lightweight—we should not need the full Scala project to validate broker behavior.
+- Agents already mount `/var/run/docker.sock`; the redirect to the broker must be transparent.
+
+## Implementation Plan
+
+### 1. Broker Service
+- Implemented in `devkit/brokers/postgres-broker` as a small Go reverse proxy that inspects Docker API calls before forwarding them through the host socket.
+- The service listens on a private Unix socket (`/broker-run/postgres-broker.sock`) and only allows the whitelisted image/tag and container options; all other API calls return 403.
+- The compose overlay builds the image locally (`devkit/overlays/codex/compose.override.yml`) and mounts both the shared broker socket volume and `/var/run/docker.sock` from the host.
+- The runtime container uses a distroless base image, runs with a read-only root filesystem, drops all Linux capabilities, and enforces `no-new-privileges` to reduce the attack surface if an agent attempts to laterally move into the broker.
+
+### 2. Agent Wiring
+- Codex overlay mounts the shared `broker-run` volume into each `dev-agent` container and exports `DOCKER_HOST=unix:///broker-run/postgres-broker.sock` so existing tooling talks to the broker transparently.
+- The broker service only connects to the internal Docker socket and joins the `dev-internal` network; it has no path to `dev-egress`.
+
+### 3. Daemon Hardening
+- Prefer running the Docker daemon in rootless mode or with `--userns-remap` so a broker bypass still maps to an unprivileged UID on the host.
+- Disable arbitrary image pulls or mirror only the approved Postgres tags to prevent unvetted workloads from appearing.
+
+### 4. Testing Strategy
+- Harness: `kit/tests/postgres-broker/` starts the broker, a DinD daemon, and a CLI client on the internal network.
+- Smoke script: `run-smoke.sh` creates/starts/stops the blessed Postgres container via raw Docker API calls and exercises rejection paths (redis image, host bind).
+- Add unit/contract tests around the broker's request filtering to assert the whitelist without needing Docker in the loop.
+- Optional CI check: run the harness, confirm Postgres reaches ready state, then tear everything down.
+
+**Status:** unit tests covering the policy layer live alongside the broker (`go test ./...`). `run-smoke.sh` runs end-to-end without impacting live sessions. CI wiring remains outstanding.
+
+### 5. Maintenance & Operations
+- Document how to update the approved Postgres versions and revoke access; keep credentials or API tokens in managed secrets.
+- Emit structured logs for every request and summarize them for audit trails.
+- Provide troubleshooting guidance (common error codes, broker log locations, steps to restart the rootless daemon).
+
+## Hands-on Smoke Test (Manual)
+- Run the scripted harness locally: `devkit/kit/tests/postgres-broker/run-smoke.sh` (respects `KEEP_STACK=1` for debugging).
+- The script installs `curl/jq` inside the client container, pre-pulls the Postgres image, runs the happy path, and asserts denial cases.
+- For ad-hoc experimentation, bring the compose stack up manually: `docker compose -f devkit/kit/tests/postgres-broker/compose.yml -p broker-smoke up -d` and send `curl --unix-socket /broker-run/postgres-broker.sock` requests from the client container.
+- Tear down with `docker compose -f devkit/kit/tests/postgres-broker/compose.yml -p broker-smoke down -v`.
+
+## Next Steps
+- Harden the policy checks based on real Testcontainers traffic and capture container lifecycle coverage.
+- Integrate the harness into CI and publish troubleshooting tips alongside the script outputs.

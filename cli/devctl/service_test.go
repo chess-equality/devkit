@@ -14,11 +14,12 @@ func TestResolveServiceOverlay(t *testing.T) {
 	}
 	// repo root: this file lives under devkit/cli/devctl
 	root := filepath.Clean(filepath.Join(cwd, "..", ".."))
+	overlays := filepath.Join(root, "overlays")
 
-	if got := resolveService("ouroboros-static-front-end", root); got != "frontend" {
+	if got := resolveService("ouroboros-static-front-end", overlays); got != "frontend" {
 		t.Fatalf("resolveService(front-end) = %q, want %q", got, "frontend")
 	}
-	if got := resolveService("codex", root); got != "dev-agent" {
+	if got := resolveService("codex", overlays); got != "dev-agent" {
 		t.Fatalf("resolveService(codex) = %q, want %q", got, "dev-agent")
 	}
 }

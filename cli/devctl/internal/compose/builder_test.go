@@ -6,6 +6,37 @@ import (
 	"testing"
 )
 
+func TestDetectPathsFromExe_OverlayOverride(t *testing.T) {
+	t.Setenv("DEVKIT_ROOT", "/tmp/devkit")
+	t.Setenv("DEVKIT_OVERLAYS_DIR", "/tmp/project-overlays")
+	p, err := DetectPathsFromExe("/tmp/devkit/kit/bin/devctl")
+	if err != nil {
+		t.Fatalf("DetectPathsFromExe failed: %v", err)
+	}
+	if p.Root != "/tmp/devkit" {
+		t.Fatalf("unexpected root: %s", p.Root)
+	}
+	if p.Kit != "/tmp/devkit/kit" {
+		t.Fatalf("unexpected kit: %s", p.Kit)
+	}
+	if p.Overlays != "/tmp/project-overlays" {
+		t.Fatalf("unexpected overlays: %s", p.Overlays)
+	}
+}
+
+func TestDetectPathsFromExe_OverlayRelativeOverride(t *testing.T) {
+	t.Setenv("DEVKIT_ROOT", "/tmp/devkit")
+	t.Setenv("DEVKIT_OVERLAYS_DIR", "../custom-overlays")
+	p, err := DetectPathsFromExe("/tmp/devkit/kit/bin/devctl")
+	if err != nil {
+		t.Fatalf("DetectPathsFromExe failed: %v", err)
+	}
+	expected := filepath.Clean("/tmp/custom-overlays")
+	if p.Overlays != expected {
+		t.Fatalf("expected overlays %s, got %s", expected, p.Overlays)
+	}
+}
+
 func TestFiles_DefaultDns(t *testing.T) {
 	p := Paths{Root: "/repo/devkit", Kit: "/repo/devkit/kit", Overlays: "/repo/devkit/overlays"}
 	got, err := Files(p, "codex", "")

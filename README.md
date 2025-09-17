@@ -163,6 +163,9 @@ See `kit/docs/README.md` for more details.
 New overlay guide:
 - Step-by-step: `kit/docs/new-overlay-guide.md` (service selection, compose paths, networking, SSH/Git gotchas, and tmux tips.)
 
+Overlay reuse:
+- Keep the compiled kit in one checkout and point `DEVKIT_OVERLAYS_DIR` at your project-specific overlays (relative paths resolve against `DEVKIT_ROOT`; default is `<DEVKIT_ROOT>/overlays`).
+
 Retrospectives and contributor guidance:
 - Reliability retrospective: `kit/docs/retrospective-ssh-git-anchor.md`
 - Contrib guideline (quoting + file writes): `kit/docs/contrib-quoting-and-file-writes.md`

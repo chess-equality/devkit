@@ -50,7 +50,8 @@ Dev Kit — Base Kit Details
 - Per-agent SBT cache check: `devkit/kit/tests/per-agent-sbt/run-smoke.sh` spins up two agents and asserts `/home/dev/.sbt` points at `/workspace/.devhomes/<hostname>/.sbt`.
 - Useful env vars:
   - `DEVKIT_ROOT`: override devkit root (used by tests).
-  - `DEVKIT_NO_TMUX=1`: skip tmux integration (non‑interactive environments).
+  - `DEVKIT_OVERLAYS_DIR`: point the CLI at an alternate overlays directory. Relative paths are resolved against `DEVKIT_ROOT`; defaults to `<DEVKIT_ROOT>/overlays` when unset.
+  - `DEVKIT_NO_TMUX=1`: skip tmux integration (non-interactive environments).
   - `DEVKIT_DEBUG=1`: echo executed commands to stderr.
   - `DEVKIT_INTERNAL_SUBNET`: internal network CIDR (default `172.30.10.0/24`).
   - `DEVKIT_DNS_IP`: DNS service IP on internal network (default `172.30.10.3`).

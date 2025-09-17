@@ -1,0 +1,55 @@
+# Compose stack used by run-smoke.sh. It mirrors the production topology with a
+# docker-in-docker daemon, the postgres broker, and a CLI client container.
+
+services:
+  docker:
+    image: docker:26-dind
+    privileged: true
+    environment:
+      - DOCKER_TLS_CERTDIR=
+    command: ["dockerd-entrypoint.sh", "--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    networks:
+      - internal
+
+  broker:
+    build:
+      context: ../../../brokers/postgres-broker
+      dockerfile: Dockerfile
+    environment:
+      - BROKER_LISTEN=unix:///broker-run/postgres-broker.sock
+      - BROKER_UPSTREAM=tcp://docker:2375
+      - BROKER_ALLOWED_IMAGE=postgres
+      - BROKER_ALLOWED_TAG=latest
+      - BROKER_ALLOW_PULLS=true
+      - BROKER_LOG_LEVEL=debug
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    volumes:
+      - broker-run:/broker-run
+    depends_on:
+      docker:
+        condition: service_started
+    networks:
+      - internal
+
+  client:
+    image: docker:26-cli
+    entrypoint: ["sleep", "infinity"]
+    environment:
+      - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
+    volumes:
+      - broker-run:/broker-run
+    networks:
+      - internal
+
+volumes:
+  broker-run:
+
+networks:
+  internal:
+    driver: bridge

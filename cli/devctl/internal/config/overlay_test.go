@@ -19,7 +19,7 @@ func TestReadHooks_FromYaml(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(over, "devkit.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadHooks(dir, "proj")
+	got, err := ReadHooks(filepath.Join(dir, "overlays"), "proj")
 	if err != nil {
 		t.Fatal(err)
 	}

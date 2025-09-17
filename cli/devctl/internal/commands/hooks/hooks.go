@@ -20,7 +20,7 @@ func handleHook(ctx *cmdregistry.Context, warm bool) error {
 	if project == "" {
 		return fmt.Errorf("-p <project> is required")
 	}
-	hooks, _ := config.ReadHooks(ctx.Paths.Root, project)
+	hooks, _ := config.ReadHooks(ctx.Paths.Overlays, project)
 	script := hooks.Maintain
 	label := "maintain"
 	if warm {

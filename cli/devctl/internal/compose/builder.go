@@ -14,18 +14,26 @@ type Paths struct {
 }
 
 func DetectPathsFromExe(exePath string) (Paths, error) {
-	// Allow override for tests via DEVKIT_ROOT
-	if root := os.Getenv("DEVKIT_ROOT"); root != "" {
-		return Paths{Root: root, Kit: filepath.Join(root, "kit"), Overlays: filepath.Join(root, "overlays")}, nil
+	root := os.Getenv("DEVKIT_ROOT")
+	if root == "" {
+		// Binary is expected under devkit/kit/bin/devctl
+		binDir := filepath.Dir(exePath)
+		root = filepath.Clean(filepath.Join(binDir, "..", ".."))
 	}
-	// Binary is expected under devkit/kit/bin/devctl
-	binDir := filepath.Dir(exePath)
-	root := filepath.Clean(filepath.Join(binDir, "..", ".."))
-	return Paths{
-		Root:     root,
-		Kit:      filepath.Join(root, "kit"),
-		Overlays: filepath.Join(root, "overlays"),
-	}, nil
+	root = filepath.Clean(root)
+	kit := filepath.Join(root, "kit")
+	overlayOverride := strings.TrimSpace(os.Getenv("DEVKIT_OVERLAYS_DIR"))
+	var overlays string
+	if overlayOverride != "" {
+		if filepath.IsAbs(overlayOverride) {
+			overlays = filepath.Clean(overlayOverride)
+		} else {
+			overlays = filepath.Join(root, overlayOverride)
+		}
+	} else {
+		overlays = filepath.Join(root, "overlays")
+	}
+	return Paths{Root: root, Kit: kit, Overlays: overlays}, nil
 }
 
 // Files builds docker compose -f arguments based on profiles and overlay presence.
