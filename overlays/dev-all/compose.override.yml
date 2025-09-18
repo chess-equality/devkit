@@ -10,6 +10,7 @@ services:
       - AWS_PROFILE=${AWS_PROFILE:-codex}
       - JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=tinyproxy -Dhttp.proxyPort=8888 -Dhttps.proxyHost=tinyproxy -Dhttps.proxyPort=8888 -Djava.net.useSystemProxies=true
       - SBT_GLOBAL_BASE=/workspaces/dev/.devhome/.sbt
+      - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
     working_dir: /workspaces/dev
     volumes:
       - ../../:/workspaces/dev:rw
@@ -20,3 +21,37 @@ services:
       - ${HOST_CODEX_DIR:-${HOME}/.codex}:/var/host-codex:ro
       - ${HOST_CODEX_FILE:-${HOME}/.codex/auth.json}:/var/auth.json:ro
       - tmpfs:/tmp
+      - broker-run:/broker-run
+    depends_on:
+      postgres-broker:
+        condition: service_started
+
+  postgres-broker:
+    build:
+      context: ../brokers/postgres-broker
+      dockerfile: Dockerfile
+    image: devkit/postgres-broker:dev
+    user: "0:0"
+    environment:
+      - BROKER_LISTEN=unix:///broker-run/postgres-broker.sock
+      - BROKER_UPSTREAM=/var/run/docker.sock
+      - BROKER_ALLOWED_IMAGE=${BROKER_ALLOWED_IMAGE:-postgres}
+      - BROKER_ALLOWED_TAG=${BROKER_ALLOWED_TAG:-latest}
+      - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-true}
+      - BROKER_LOG_LEVEL=${BROKER_LOG_LEVEL:-info}
+      - BROKER_ATTACH_NETWORKS=${BROKER_ATTACH_NETWORKS:-devkit-devall_dev-internal}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    volumes:
+      - broker-run:/broker-run
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - dev-internal
+
+volumes:
+  broker-run:

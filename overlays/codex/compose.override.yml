@@ -48,7 +48,9 @@ services:
       - BROKER_UPSTREAM=/var/run/docker.sock
       - BROKER_ALLOWED_IMAGE=${BROKER_ALLOWED_IMAGE:-postgres}
       - BROKER_ALLOWED_TAG=${BROKER_ALLOWED_TAG:-latest}
-      - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-false}
+      - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-true}
+      - BROKER_LOG_LEVEL=${BROKER_LOG_LEVEL:-info}
+      - BROKER_ATTACH_NETWORKS=${BROKER_ATTACH_NETWORKS:-devkit_dev-internal}
     read_only: true
     cap_drop:
       - ALL

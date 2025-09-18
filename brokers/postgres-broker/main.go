@@ -35,6 +35,7 @@ type brokerConfig struct {
 	AllowedEnv      []string
 	AllowImagePulls bool
 	LogLevel        string
+	AttachNetworks  []string
 }
 
 type containerRegistry struct {
@@ -87,6 +88,7 @@ type requestContext struct {
 	client     *http.Client
 	target     *url.URL
 	containers *containerRegistry
+	attachNets []string
 }
 
 type policy struct {
@@ -147,6 +149,16 @@ func loadConfig() brokerConfig {
 	}
 	if env := os.Getenv("BROKER_ALLOWED_ENV"); env != "" {
 		cfg.AllowedEnv = strings.Split(env, ",")
+	}
+	if nets := os.Getenv("BROKER_ATTACH_NETWORKS"); nets != "" {
+		for _, part := range strings.Split(nets, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				cfg.AttachNetworks = append(cfg.AttachNetworks, trimmed)
+			}
+		}
+	}
+	if net := strings.TrimSpace(os.Getenv("BROKER_ATTACH_NETWORK")); net != "" {
+		cfg.AttachNetworks = append(cfg.AttachNetworks, net)
 	}
 	return cfg
 }
@@ -218,6 +230,7 @@ func main() {
 		client:     client,
 		target:     targetURL,
 		containers: newContainerRegistry(),
+		attachNets: cfg.AttachNetworks,
 	}
 
 	handler := http.HandlerFunc(rc.handle)
@@ -225,13 +238,18 @@ func main() {
 	server := &http.Server{
 		Handler:           handler,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      0,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	listener, err := net.Listen(listenProto, listenAddr)
 	if err != nil {
 		log.Fatalf("failed to listen on %s: %v", cfg.ListenAddr, err)
+	}
+	if listenProto == "unix" {
+		if err := os.Chmod(listenAddr, 0o666); err != nil {
+			log.WithError(err).Warn("failed to adjust socket permissions")
+		}
 	}
 	log.Infof("postgres broker listening on %s forwarding to %s", cfg.ListenAddr, cfg.UpstreamAddr)
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -273,6 +291,9 @@ func filepathDir(p string) string {
 
 func (rc *requestContext) handle(w http.ResponseWriter, r *http.Request) {
 	log.WithFields(log.Fields{"method": r.Method, "path": r.URL.Path}).Debug("incoming request")
+	if rc.handleNoop(w, r) {
+		return
+	}
 	if err := rc.authorize(r); err != nil {
 		switch {
 		case errors.Is(err, errForbidden), errors.Is(err, errUnknownContainer):
@@ -298,6 +319,50 @@ func (rc *requestContext) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	copyResponse(w, resp)
+}
+
+func (rc *requestContext) handleNoop(w http.ResponseWriter, r *http.Request) bool {
+	cleanPath := stripVersionPrefix(r.URL.Path)
+	if cleanPath == "/containers/prune" && r.Method == http.MethodPost {
+		log.WithFields(log.Fields{"method": r.Method, "path": r.URL.Path}).Debug("responding to containers prune noop")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ContainersDeleted": []string{},
+			"SpaceReclaimed":    0,
+		})
+		return true
+	}
+	if cleanPath == "/networks/prune" && r.Method == http.MethodPost {
+		log.WithFields(log.Fields{"method": r.Method, "path": r.URL.Path}).Debug("responding to networks prune noop")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"NetworksDeleted": []string{},
+		})
+		return true
+	}
+	if cleanPath == "/volumes/prune" && r.Method == http.MethodPost {
+		log.WithFields(log.Fields{"method": r.Method, "path": r.URL.Path}).Debug("responding to volumes prune noop")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"VolumesDeleted": []string{},
+			"SpaceReclaimed": 0,
+		})
+		return true
+	}
+	if cleanPath == "/images/prune" && r.Method == http.MethodPost {
+		log.WithFields(log.Fields{"method": r.Method, "path": r.URL.Path}).Debug("responding to images prune noop")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ImagesDeleted":  []string{},
+			"SpaceReclaimed": 0,
+		})
+		return true
+	}
+	return false
 }
 
 func (rc *requestContext) forward(r *http.Request) (*http.Response, error) {
@@ -332,7 +397,14 @@ func (rc *requestContext) postProcess(r *http.Request, resp *http.Response) erro
 	cleanPath := stripVersionPrefix(r.URL.Path)
 	switch {
 	case cleanPath == "/containers/create" && r.Method == http.MethodPost:
-		return rc.captureContainer(resp, r.URL.Query().Get("name"))
+		id, err := rc.captureContainer(resp, r.URL.Query().Get("name"))
+		if err != nil {
+			return err
+		}
+		if id != "" {
+			rc.attachContainerNetworks(id)
+		}
+		return nil
 	case strings.HasPrefix(cleanPath, "/containers/") && r.Method == http.MethodDelete:
 		identifier := containerIDFromPath(cleanPath)
 		if identifier != "" {
@@ -343,20 +415,59 @@ func (rc *requestContext) postProcess(r *http.Request, resp *http.Response) erro
 	return nil
 }
 
-func (rc *requestContext) captureContainer(resp *http.Response, requestedName string) error {
+func (rc *requestContext) captureContainer(resp *http.Response, requestedName string) (string, error) {
 	bodyCopy, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	restored := io.NopCloser(bytes.NewReader(bodyCopy))
 	resp.Body = restored
 
 	var payload containerCreateResponse
 	if err := json.Unmarshal(bodyCopy, &payload); err != nil {
-		return err
+		return "", err
 	}
 	if payload.ID != "" {
 		rc.containers.add(payload.ID, requestedName)
+	}
+	return payload.ID, nil
+}
+
+func (rc *requestContext) attachContainerNetworks(containerID string) {
+	if strings.TrimSpace(containerID) == "" {
+		return
+	}
+	for _, netName := range rc.attachNets {
+		name := strings.TrimSpace(netName)
+		if name == "" {
+			continue
+		}
+		if err := rc.connectNetwork(containerID, name); err != nil {
+			log.WithFields(log.Fields{"container": containerID, "network": name, "error": err.Error()}).Warn("failed to attach network")
+		}
+	}
+}
+
+func (rc *requestContext) connectNetwork(containerID, network string) error {
+	path := fmt.Sprintf("/networks/%s/connect", network)
+	payload := map[string]string{"Container": containerID}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, rc.target.ResolveReference(&url.URL{Path: path}).String(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := rc.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotModified {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("network connect status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil
 }
@@ -370,13 +481,19 @@ func (rc *requestContext) authorize(r *http.Request) error {
 
 	switch {
 	case cleanPath == "/images/json" && r.Method == http.MethodGet:
-		return errForbidden
+		return nil
 	case cleanPath == "/images/create" && r.Method == http.MethodPost:
 		return rc.authorizeImageCreate(r)
+	case strings.HasPrefix(cleanPath, "/images/") && strings.HasSuffix(cleanPath, "/json") && r.Method == http.MethodGet:
+		return rc.authorizeImageInspect(cleanPath)
+	case cleanPath == "/containers/json" && r.Method == http.MethodGet:
+		return nil
 	case cleanPath == "/containers/create" && r.Method == http.MethodPost:
 		return rc.authorizeContainerCreate(r)
 	case strings.HasPrefix(cleanPath, "/containers/"):
 		return rc.authorizeContainerAction(cleanPath)
+	case strings.HasPrefix(cleanPath, "/networks/") && r.Method == http.MethodGet:
+		return rc.authorizeNetworkInspect(cleanPath)
 	default:
 		return errForbidden
 	}
@@ -420,6 +537,12 @@ func (rc *requestContext) authorizeContainerCreate(r *http.Request) error {
 		log.WithFields(log.Fields{"image": payload.Image, "allowed": rc.policy.allowedImageRef()}).Warn("blocked container create: image mismatch")
 		return errForbidden
 	}
+	log.WithFields(log.Fields{
+		"image":        payload.Image,
+		"env":          payload.Env,
+		"portBindings": payload.HostConfig.PortBindings,
+		"networkMode":  payload.HostConfig.NetworkMode,
+	}).Debug("inspected container create payload")
 
 	if payload.HostConfig.Privileged {
 		log.Warn("blocked container create: privileged requested")
@@ -489,7 +612,42 @@ func (rc *requestContext) authorizeContainerAction(cleanPath string) error {
 	return nil
 }
 
+func (rc *requestContext) authorizeNetworkInspect(cleanPath string) error {
+	identifier := resourceIDFromPath(cleanPath)
+	switch identifier {
+	case "bridge", "host", "none":
+		log.WithField("network", identifier).Debug("allowing network inspect")
+		return nil
+	default:
+		return errForbidden
+	}
+}
+
+func (rc *requestContext) authorizeImageInspect(cleanPath string) error {
+	identifier := strings.TrimPrefix(cleanPath, "/images/")
+	identifier = strings.TrimSuffix(identifier, "/json")
+	identifier = strings.Trim(identifier, "/")
+	if identifier == "" {
+		return errForbidden
+	}
+	if strings.HasPrefix(identifier, "sha256:") {
+		log.WithField("image", identifier).Debug("allowing digest inspect")
+		return nil
+	}
+	allowedRef := rc.policy.allowedImageRef()
+	allowedImage := rc.policy.allowedImage
+	if matchesAllowedImage(identifier, allowedImage, allowedRef) {
+		log.WithField("image", identifier).Debug("allowing image inspect")
+		return nil
+	}
+	return errForbidden
+}
+
 func containerIDFromPath(cleanPath string) string {
+	return resourceIDFromPath(cleanPath)
+}
+
+func resourceIDFromPath(cleanPath string) string {
 	parts := strings.Split(cleanPath, "/")
 	if len(parts) < 3 {
 		return ""
@@ -497,8 +655,38 @@ func containerIDFromPath(cleanPath string) string {
 	return parts[2]
 }
 
+func matchesAllowedImage(candidate, allowedImage, allowedRef string) bool {
+	allowed := map[string]struct{}{}
+	addImageVariants(allowed, allowedImage)
+	addImageVariants(allowed, allowedRef)
+	_, ok := allowed[candidate]
+	return ok
+}
+
+func addImageVariants(set map[string]struct{}, val string) {
+	if val == "" {
+		return
+	}
+	for _, variant := range []string{val, "library/" + val, "docker.io/" + val, "docker.io/library/" + val} {
+		set[variant] = struct{}{}
+	}
+}
+
 func stripVersionPrefix(p string) string {
 	return dockerAPIVersionPattern.ReplaceAllString(p, "/")
+}
+
+type flushWriter struct {
+	w  http.ResponseWriter
+	fl http.Flusher
+}
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if err == nil {
+		fw.fl.Flush()
+	}
+	return n, err
 }
 
 func copyResponse(w http.ResponseWriter, resp *http.Response) {
@@ -508,7 +696,11 @@ func copyResponse(w http.ResponseWriter, resp *http.Response) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	writer := io.Writer(w)
+	if fl, ok := w.(http.Flusher); ok {
+		writer = &flushWriter{w: w, fl: fl}
+	}
+	_, _ = io.Copy(writer, resp.Body)
 }
 
 func getEnv(key, def string) string {

@@ -16,11 +16,15 @@
 ### 1. Broker Service
 - Implemented in `devkit/brokers/postgres-broker` as a small Go reverse proxy that inspects Docker API calls before forwarding them through the host socket.
 - The service listens on a private Unix socket (`/broker-run/postgres-broker.sock`) and only allows the whitelisted image/tag and container options; all other API calls return 403.
+- Read-only Docker API access is granted for metadata endpoints that Testcontainers expects (`/_ping`, `/info`, `/version`, `/images/json`, `/containers/json`, `GET /networks/<id>` and image digests). Any write operation outside of the Postgres lifecycle is still rejected.
+- `POST /containers/prune`, `/networks/prune`, `/volumes/prune`, and `/images/prune` are answered with stubbed 200 responses so Testcontainers' fallback cleanup hooks do not error, while still avoiding destructive pruning on the host daemon.
 - The compose overlay builds the image locally (`devkit/overlays/codex/compose.override.yml`) and mounts both the shared broker socket volume and `/var/run/docker.sock` from the host.
-- The runtime container uses a distroless base image, runs with a read-only root filesystem, drops all Linux capabilities, and enforces `no-new-privileges` to reduce the attack surface if an agent attempts to laterally move into the broker.
+- The runtime container uses a distroless base image, runs with a read-only root filesystem, drops all Linux capabilities, enforces `no-new-privileges`, and allows image pulls only for the whitelisted Postgres tag so first-run suites can fetch the required image.
+- On start the broker sets its unix socket to `0666`, then serves it from the dedicated `broker-run` volume so non-root dev agents can reach the proxy without opening up broader filesystem access.
 
 ### 2. Agent Wiring
-- Codex overlay mounts the shared `broker-run` volume into each `dev-agent` container and exports `DOCKER_HOST=unix:///broker-run/postgres-broker.sock` so existing tooling talks to the broker transparently.
+- Codex and dev-all overlays mount the shared `broker-run` volume into each `dev-agent` container and export `DOCKER_HOST=unix:///broker-run/postgres-broker.sock` so existing tooling (Testcontainers, docker CLI) talks to the broker transparently.
+- Overlays may set `BROKER_ATTACH_NETWORKS` (for dev-all we default to `devkit-devall_dev-internal`) so the broker automatically connects any approved Postgres container to the internal network that the requesting agent uses. This keeps Testcontainers reachable even when the host bridge (`172.17.0.1`) is blocked in hardened profiles.
 - The broker service only connects to the internal Docker socket and joins the `dev-internal` network; it has no path to `dev-egress`.
 
 ### 3. Daemon Hardening
