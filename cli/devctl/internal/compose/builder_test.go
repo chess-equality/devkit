@@ -3,6 +3,7 @@ package compose
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,8 +20,8 @@ func TestDetectPathsFromExe_OverlayOverride(t *testing.T) {
 	if p.Kit != "/tmp/devkit/kit" {
 		t.Fatalf("unexpected kit: %s", p.Kit)
 	}
-	if p.Overlays != "/tmp/project-overlays" {
-		t.Fatalf("unexpected overlays: %s", p.Overlays)
+	if len(p.OverlayPaths) != 1 || p.OverlayPaths[0] != "/tmp/project-overlays" {
+		t.Fatalf("unexpected overlays: %v", p.OverlayPaths)
 	}
 }
 
@@ -32,13 +33,33 @@ func TestDetectPathsFromExe_OverlayRelativeOverride(t *testing.T) {
 		t.Fatalf("DetectPathsFromExe failed: %v", err)
 	}
 	expected := filepath.Clean("/tmp/custom-overlays")
-	if p.Overlays != expected {
-		t.Fatalf("expected overlays %s, got %s", expected, p.Overlays)
+	if len(p.OverlayPaths) != 1 || p.OverlayPaths[0] != expected {
+		t.Fatalf("expected overlays %s, got %v", expected, p.OverlayPaths)
+	}
+}
+
+func TestDetectPathsFromExe_ListSeparator(t *testing.T) {
+	t.Setenv("DEVKIT_ROOT", "/tmp/devkit")
+	sep := string(os.PathListSeparator)
+	over := strings.Join([]string{"/first", "../second"}, sep)
+	t.Setenv("DEVKIT_OVERLAYS_DIR", over)
+	p, err := DetectPathsFromExe("/tmp/devkit/kit/bin/devctl")
+	if err != nil {
+		t.Fatalf("DetectPathsFromExe failed: %v", err)
+	}
+	if len(p.OverlayPaths) != 2 {
+		t.Fatalf("expected 2 overlay paths, got %v", p.OverlayPaths)
+	}
+	if p.OverlayPaths[0] != "/first" {
+		t.Fatalf("unexpected first overlay: %v", p.OverlayPaths)
+	}
+	if p.OverlayPaths[1] != filepath.Clean("/tmp/second") {
+		t.Fatalf("unexpected second overlay: %v", p.OverlayPaths)
 	}
 }
 
 func TestFiles_DefaultDns(t *testing.T) {
-	p := Paths{Root: "/repo/devkit", Kit: "/repo/devkit/kit", Overlays: "/repo/devkit/overlays"}
+	p := Paths{Root: "/repo/devkit", Kit: "/repo/devkit/kit", OverlayPaths: []string{"/repo/devkit/overlays"}}
 	got, err := Files(p, "codex", "")
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +86,7 @@ func TestFiles_ProfilesAndOverlay(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(overlays, "compose.override.yml"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p := Paths{Root: dir, Kit: kit, Overlays: filepath.Join(dir, "overlays")}
+	p := Paths{Root: dir, Kit: kit, OverlayPaths: []string{filepath.Join(dir, "overlays")}}
 	got, err := Files(p, "proj", "hardened,dns,envoy")
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +113,7 @@ func TestFiles_ProfilesAndOverlay(t *testing.T) {
 }
 
 func TestFiles_UnknownProfile(t *testing.T) {
-	p := Paths{Root: "/r", Kit: "/r/kit", Overlays: "/r/overlays"}
+	p := Paths{Root: "/r", Kit: "/r/kit", OverlayPaths: []string{"/r/overlays"}}
 	if _, err := Files(p, "proj", "invalid"); err == nil {
 		t.Fatal("expected error for unknown profile")
 	}
@@ -112,7 +133,7 @@ func TestAllProfilesFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(overlays, "compose.override.yml"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p := Paths{Root: dir, Kit: kit, Overlays: filepath.Join(dir, "overlays")}
+	p := Paths{Root: dir, Kit: kit, OverlayPaths: []string{filepath.Join(dir, "overlays")}}
 	got := AllProfilesFiles(p, "proj")
 	if len(got) != 10 {
 		t.Fatalf("want 10 args, got %d: %v", len(got), got)

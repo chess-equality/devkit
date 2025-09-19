@@ -5,6 +5,9 @@ service: app
 # Optional: environment exported on the host before running compose commands
 env: {}
 
+# Optional: additional env files (relative paths resolve from this directory)
+env_files: []
+
 # Optional hooks executed inside the container
 hooks:
   warm: ""

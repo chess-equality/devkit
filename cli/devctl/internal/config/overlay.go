@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +30,7 @@ type Defaults struct {
 type OverlayConfig struct {
 	Workspace string            `yaml:"workspace"`
 	Env       map[string]string `yaml:"env"`
+	EnvFiles  []string          `yaml:"env_files"`
 	Hooks     Hooks             `yaml:"hooks"`
 	Defaults  Defaults          `yaml:"defaults"`
 	// Default service name for this overlay (e.g., dev-agent, frontend)
@@ -36,24 +39,33 @@ type OverlayConfig struct {
 
 // ReadHooks parses overlays/<project>/devkit.yaml and returns warm/maintain hooks.
 // It ignores other fields for backwards compatibility with existing callers.
-func ReadHooks(overlaysRoot, project string) (Hooks, error) {
-	cfg, _ := ReadAll(overlaysRoot, project)
+func ReadHooks(overlays []string, project string) (Hooks, error) {
+	cfg, _, _ := ReadAll(overlays, project)
 	return cfg.Hooks, nil
 }
 
 // ReadAll parses overlays/<project>/devkit.yaml and returns the full overlay config.
-func ReadAll(overlaysRoot, project string) (OverlayConfig, error) {
+func ReadAll(overlays []string, project string) (OverlayConfig, string, error) {
 	var out OverlayConfig
-	if project == "" {
-		return out, nil
+	if strings.TrimSpace(project) == "" {
+		return out, "", nil
 	}
-	path := filepath.Join(overlaysRoot, project, "devkit.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return out, nil
+	for _, root := range overlays {
+		candidate := filepath.Join(root, project, "devkit.yaml")
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return out, "", err
+		}
+		if err := yaml.Unmarshal(data, &out); err != nil {
+			return out, filepath.Dir(candidate), err
+		}
+		if out.Env == nil {
+			out.Env = map[string]string{}
+		}
+		return out, filepath.Dir(candidate), nil
 	}
-	if err := yaml.Unmarshal(data, &out); err != nil {
-		return out, nil
-	}
-	return out, nil
+	return out, "", nil
 }

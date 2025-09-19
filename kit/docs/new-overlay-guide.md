@@ -10,6 +10,7 @@ Manual steps if not using the template:
   - Required: `workspace: ../../<your-repo-folder>` — the CLI resolves it to an absolute `WORKSPACE_DIR` before compose runs.
   - Recommended: `service: <service-name>` to set the default service for CLI exec/attach/ssh/repo commands.
   - Optional: `env:` to provide host defaults (e.g., `AWS_PROFILE`) that users can still override.
+  - Optional: `env_files:` pointing at dotenv-style files (paths relative to the overlay directory) to prepopulate env vars without committing secrets.
   - Optional hooks: `warm`, `maintain` (run inside container via `devkit warm|maintain`).
 
 - overlays/<name>/compose.override.yml
@@ -65,6 +66,8 @@ workspace: ../../<your-repo-folder>
 service: frontend
 env:
   AWS_PROFILE: dev
+env_files:
+  - ../secrets/dev.env
 hooks:
   warm: npm ci
   maintain: npm run build

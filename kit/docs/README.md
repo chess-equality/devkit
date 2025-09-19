@@ -53,7 +53,7 @@ Dev Kit — Base Kit Details
 - Per-agent SBT cache check: `devkit/kit/tests/per-agent-sbt/run-smoke.sh` spins up two agents and asserts `/home/dev/.sbt` points at `/workspace/.devhomes/<hostname>/.sbt`.
 - Useful env vars:
   - `DEVKIT_ROOT`: override devkit root (used by tests).
-  - `DEVKIT_OVERLAYS_DIR`: point the CLI at an alternate overlays directory. Relative paths are resolved against `DEVKIT_ROOT`; defaults to `<DEVKIT_ROOT>/overlays` when unset.
+  - `DEVKIT_OVERLAYS_DIR`: point the CLI at alternate overlay directories. Accepts a list separated by your OS path separator (e.g., `dir1:dir2`). Relative entries resolve against `DEVKIT_ROOT`.
   - `DEVKIT_NO_TMUX=1`: skip tmux integration (non-interactive environments).
   - `DEVKIT_DEBUG=1`: echo executed commands to stderr.
   - `DEVKIT_INTERNAL_SUBNET`: internal network CIDR (default `172.30.10.0/24`).
@@ -68,9 +68,18 @@ Dev Kit — Base Kit Details
 
 - `workspace`: path to mount at `/workspace`. Relative paths resolve from the overlay directory and are cleaned to an absolute path before compose runs (`WORKSPACE_DIR`).
 - `env`: key/value pairs exported on the host unless already set, useful for defaults like `AWS_PROFILE` or feature flags shared across commands.
+- `env_files`: list of dotenv-style files (relative to the overlay directory) whose contents are exported unless the keys already exist in the host environment.
 - `service`: default compose service for CLI commands (`dev-agent` fallback).
 - `hooks.warm` / `hooks.maintain`: optional commands executed inside the container (`devkit warm|maintain`).
 - `defaults.*`: overlay-specific defaults for agent counts and worktree automation (see `overlays/dev-all/devkit.yaml`).
+
+## Host configuration
+
+Developers can maintain per-host defaults outside the repo via `~/.config/devkit/config.yaml` (override with `DEVKIT_CONFIG`). Supported fields:
+
+- `overlay_paths`: additional directories the CLI searches (in order) when resolving overlays. Relative entries resolve from the config file directory (fallback to the repo root).
+- `env`: environment variables exported before commands run (skipped when already set in the host shell).
+- `cli.download_url`: URL to a prebuilt `devctl` binary. The wrapper scripts fall back to downloading this when `make` is unavailable.
 
 Further reading
 - Mixed overlays + frontend notes: overlay-front-end-notes.md

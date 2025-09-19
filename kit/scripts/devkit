@@ -8,18 +8,72 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 KIT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 BIN="$KIT_DIR/bin/devctl"
 
+read_config_cli_url() {
+  local cfg="${DEVKIT_CONFIG:-}"
+  if [[ -z "$cfg" ]]; then
+    if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+      cfg="$XDG_CONFIG_HOME/devkit/config.yaml"
+    else
+      cfg="$HOME/.config/devkit/config.yaml"
+    fi
+  fi
+  if [[ ! -f "$cfg" ]]; then
+    return 1
+  fi
+  awk '
+    /^[[:space:]]*cli:/ {cli=1; next}
+    cli && /^[^[:space:]]/ {cli=0}
+    cli && /download_url:/ {
+      sub(/^[[:space:]]*download_url:[[:space:]]*/, "", $0);
+      gsub(/"/, "", $0);
+      print $0;
+      exit 0;
+    }
+  ' "$cfg"
+}
+
+download_cli() {
+  local url="${DEVKIT_CLI_DOWNLOAD_URL:-}"
+  if [[ -z "$url" ]]; then
+    url="$(read_config_cli_url || true)"
+  fi
+  if [[ -z "$url" ]]; then
+    return 1
+  fi
+  echo "devkit: downloading CLI from $url" >&2
+  mkdir -p "$(dirname "$BIN")"
+  local tmp
+  tmp="$(mktemp)"
+  if command -v curl >/dev/null 2>&1; then
+    if ! curl -fsSL "$url" -o "$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    if ! wget -q -O "$tmp" "$url"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod +x "$tmp"
+  mv "$tmp" "$BIN"
+  return 0
+}
+
 ensure_cli() {
   if [[ -x "$BIN" ]]; then
     return 0
   fi
-  if ! command -v make >/dev/null 2>&1; then
-    return 1
+  if command -v make >/dev/null 2>&1; then
+    echo "devkit: building CLI (make -C devkit/cli/devctl build)" >&2
+    if make -C "$KIT_DIR/../cli/devctl" build >/dev/null; then
+      return 0
+    fi
   fi
-  echo "devkit: building CLI (make -C devkit/cli/devctl build)" >&2
-  if make -C "$KIT_DIR/../cli/devctl" build >/dev/null; then
-    return 0
-  fi
-  return 1
+  download_cli
 }
 
 if ! ensure_cli; then

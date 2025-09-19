@@ -38,7 +38,18 @@ Overlay metadata in `overlays/<project>/devkit.yaml` can now set:
 - `workspace`: path (relative to the overlay by default) that the CLI resolves to an absolute `WORKSPACE_DIR` before compose runs.
 - `env`: key/value pairs exported on the host unless already set, making it easy to share defaults like `AWS_PROFILE` across repos.
 
-Compose overrides should prefer `${WORKSPACE_DIR}` when mounting the repo into `/workspace`; the template overlay has been updated to illustrate the pattern.
+Compose overrides should prefer `${WORKSPACE_DIR}` when mounting the repo into `/workspace`; the template overlay has been updated to illustrate the pattern. You can also distribute per-host defaults (additional overlay search paths, environment variables, or CLI download URLs) via `~/.config/devkit/config.yaml`:
+
+```
+overlay_paths:
+  - /opt/devkit-overlays
+env:
+  DEVKIT_CLI_DOWNLOAD_URL: https://example.com/devctl-linux-amd64
+cli:
+  download_url: https://example.com/devctl-linux-amd64
+```
+
+The CLI now searches overlay directories like `$PATH`: values from `DEVKIT_OVERLAYS_DIR`, then entries in the host config, and finally the repo-local `overlays/`. Overlay configs gained `env_files`, letting you point at dotenv-style files whose keys are exported unless already set in the host environment, on top of inline `env` values.
 
 Credential pool (proposal, opt‑in):
 - For teams needing multiple Codex identities, see `kit/docs/proposals/codex-credential-pool.md`.
@@ -219,8 +230,9 @@ Proposal: Bash → Go CLI Migration
 Recent improvements:
 
 - Wrapper scripts now rely on POSIX-compatible path resolution, eliminating the GNU `readlink -f` dependency on macOS and other BSD systems.
-- Overlay configs populate `WORKSPACE_DIR` and default environment variables automatically, removing most hard-coded relative paths from compose overrides.
-- Wrapper entrypoints auto-build the `devctl` binary with `make` when it is missing, so newcomers can launch the kit without a manual compile step.
+- Overlay configs populate `WORKSPACE_DIR`, honor optional `env_files`, and export defaults automatically, removing most hard-coded relative paths from compose overrides.
+- Overlay search paths behave like `$PATH`: set `DEVKIT_OVERLAYS_DIR` or host-level `overlay_paths` to layer multiple overlay repositories without editing this checkout.
+- Wrapper entrypoints auto-build the `devctl` binary with `make`, or download a prebuilt binary when `DEVKIT_CLI_DOWNLOAD_URL` (or the host config `cli.download_url`) is set, so newcomers can launch the kit without a local Go toolchain.
 
 Next focus areas:
 

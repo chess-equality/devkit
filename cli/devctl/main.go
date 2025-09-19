@@ -158,23 +158,36 @@ func listServiceNamesProject(project, service string) []string {
 // listAgentNames returns running dev-agent container names (sorted) for the given compose files.
 func listAgentNames(files []string) []string { return listServiceNames(files, "dev-agent") }
 
-func applyOverlayEnv(cfg config.OverlayConfig, paths compose.Paths, project string) {
+func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
+	base := strings.TrimSpace(overlayDir)
+	if base == "" {
+		base = root
+	}
 	ws := strings.TrimSpace(cfg.Workspace)
 	if ws != "" {
 		resolved := ws
 		if !filepath.IsAbs(ws) {
-			base := paths.Root
-			if strings.TrimSpace(project) != "" {
-				base = filepath.Join(paths.Overlays, project)
-			}
 			resolved = filepath.Clean(filepath.Join(base, ws))
 		}
 		if cur, ok := os.LookupEnv("WORKSPACE_DIR"); !ok || strings.TrimSpace(cur) == "" {
 			_ = os.Setenv("WORKSPACE_DIR", resolved)
 		}
 	}
-	if len(cfg.Env) == 0 {
-		return
+	for _, file := range cfg.EnvFiles {
+		path := strings.TrimSpace(file)
+		if path == "" {
+			continue
+		}
+		resolved := path
+		if !filepath.IsAbs(path) {
+			resolved = filepath.Join(base, path)
+		}
+		for k, v := range readEnvFile(resolved) {
+			if _, ok := os.LookupEnv(k); ok {
+				continue
+			}
+			_ = os.Setenv(k, v)
+		}
 	}
 	for key, val := range cfg.Env {
 		k := strings.TrimSpace(key)
@@ -186,6 +199,62 @@ func applyOverlayEnv(cfg config.OverlayConfig, paths compose.Paths, project stri
 		}
 		_ = os.Setenv(k, val)
 	}
+}
+
+func readEnvFile(path string) map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		parts := strings.SplitN(trim, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if key == "" {
+			continue
+		}
+		out[key] = val
+	}
+	return out
+}
+
+func resolveHostOverlayPaths(raw []string, baseDir string, root string) []string {
+	out := make([]string, 0, len(raw))
+	for _, p := range raw {
+		trim := strings.TrimSpace(p)
+		if trim == "" {
+			continue
+		}
+		resolved := expandHome(trim)
+		if !filepath.IsAbs(resolved) {
+			anchor := root
+			if baseDir != "" {
+				anchor = baseDir
+			}
+			resolved = filepath.Join(anchor, resolved)
+		}
+		out = append(out, filepath.Clean(resolved))
+	}
+	return out
+}
+
+func expandHome(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		house, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(house, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path
 }
 
 // listServiceNamesAny returns running containers for a service across all compose projects (fallback path).
@@ -383,12 +452,12 @@ func interactiveExecServiceIdx(dry bool, files []string, service, idx string, ba
 }
 
 // resolveService returns the default service for a project overlay, falling back to dev-agent.
-func resolveService(project string, overlaysRoot string) string {
+func resolveService(project string, overlayPaths []string) string {
 	svc := "dev-agent"
 	if strings.TrimSpace(project) == "" {
 		return svc
 	}
-	if cfg, err := config.ReadAll(overlaysRoot, project); err == nil {
+	if cfg, _, err := config.ReadAll(overlayPaths, project); err == nil {
 		if s := strings.TrimSpace(cfg.Service); s != "" {
 			svc = s
 		}
@@ -489,8 +558,37 @@ func main() {
 
 	exe, _ := os.Executable()
 	paths, _ := compose.DetectPathsFromExe(exe)
-	overlayCfg, _ := config.ReadAll(paths.Overlays, project)
-	applyOverlayEnv(overlayCfg, paths, project)
+	hostCfg, hostCfgDir, hostErr := config.ReadHostConfig()
+	if hostErr != nil {
+		fmt.Fprintf(os.Stderr, "[devctl] warning: failed to parse host config: %v\n", hostErr)
+	}
+	if url := strings.TrimSpace(hostCfg.CLI.DownloadURL); url != "" {
+		if _, ok := os.LookupEnv("DEVKIT_CLI_DOWNLOAD_URL"); !ok {
+			_ = os.Setenv("DEVKIT_CLI_DOWNLOAD_URL", url)
+		}
+	}
+	for key, val := range hostCfg.Env {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if _, ok := os.LookupEnv(key); ok {
+			continue
+		}
+		_ = os.Setenv(key, val)
+	}
+	if len(hostCfg.OverlayPaths) > 0 {
+		extra := resolveHostOverlayPaths(hostCfg.OverlayPaths, hostCfgDir, paths.Root)
+		paths.OverlayPaths = compose.MergeOverlayPaths(paths.OverlayPaths, extra...)
+	}
+	overlayDir := compose.FindOverlayDir(paths.OverlayPaths, project)
+	overlayCfg, cfgDir, cfgErr := config.ReadAll(paths.OverlayPaths, project)
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "[devctl] warning: failed to parse devkit.yaml for %s: %v\n", project, cfgErr)
+	}
+	if cfgDir == "" {
+		cfgDir = overlayDir
+	}
+	applyOverlayEnv(overlayCfg, cfgDir, paths.Root)
 	files, err := compose.Files(paths, project, profile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -505,7 +603,6 @@ func main() {
 	if os.Getenv("DEVKIT_DEBUG") == "1" {
 		fmt.Fprintf(os.Stderr, "[devctl] internal subnet=%s dns_ip=%s\n", cidr, dns)
 	}
-
 
 	// honor --no-tmux by setting env used by skipTmux()
 	if noTmux {
@@ -635,7 +732,7 @@ func main() {
 			baseBranch := strings.TrimSpace(ov.Worktrees.BaseBranch)
 			branchPrefix := strings.TrimSpace(ov.Worktrees.BranchPrefix)
 			if baseBranch == "" || branchPrefix == "" {
-				if cfg, er := config.ReadAll(paths.Overlays, "dev-all"); er == nil {
+				if cfg, _, er := config.ReadAll(paths.OverlayPaths, "dev-all"); er == nil {
 					if baseBranch == "" {
 						baseBranch = cfg.Defaults.BaseBranch
 					}
@@ -704,11 +801,11 @@ func main() {
 			}
 			svc := ov.Service
 			if strings.TrimSpace(svc) == "" {
-				svc = resolveService(ovProj, paths.Overlays)
+				svc = resolveService(ovProj, paths.OverlayPaths)
 			} else {
 				svc = strings.TrimSpace(svc)
 			}
-			if svc != "dev-agent" {
+			if svc == "" {
 				continue
 			}
 			cnt := ov.Count
@@ -945,7 +1042,7 @@ func main() {
 		}
 		// Index-free HOME anchor per container (no reliance on replica index)
 		// Proactively seed SSH+Git so 'git pull' just works in the window
-		svc := resolveService(project, paths.Overlays)
+	svc := resolveService(project, paths.OverlayPaths)
 		anchor := anchorHome(project)
 		base := anchorBase(project)
 		runAnchorPlan(dryRun, files, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
@@ -984,7 +1081,7 @@ func main() {
 			idx = sub[0]
 		}
 		// Long-lived attach: no timeout
-		svc := resolveService(project, paths.Overlays)
+	svc := resolveService(project, paths.OverlayPaths)
 		runner.ComposeInteractive(dryRun, files, "attach", "--index", idx, svc)
 	case "proxy":
 		mustProject(project)
@@ -1020,7 +1117,7 @@ func main() {
 			}
 		}
 		if project == "dev-all" && strings.TrimSpace(repo) == "" {
-			if cfg, err := config.ReadAll(paths.Overlays, project); err == nil {
+			if cfg, _, err := config.ReadAll(paths.OverlayPaths, project); err == nil {
 				repo = cfg.Defaults.Repo
 			}
 		}
@@ -1046,7 +1143,7 @@ func main() {
 		{
 			if project == "dev-all" {
 				// Use defaults to pick a repo
-				cfg, _ := config.ReadAll(paths.Overlays, project)
+				cfg, _, _ := config.ReadAll(paths.OverlayPaths, project)
 				repo := cfg.Defaults.Repo
 				if strings.TrimSpace(repo) == "" {
 					repo = "ouroboros-ide"
@@ -1161,7 +1258,7 @@ exit 0`, home, home, home, home, home)
 			cmdstr = strings.Join(sub[2:], " ")
 		}
 		// Interactive shell: ensure anchor and seed SSH, then cd
-		svc := resolveService(project, paths.Overlays)
+	svc := resolveService(project, paths.OverlayPaths)
 		anchor := anchorHome(project)
 		base := anchorBase(project)
 		runAnchorPlan(dryRun, files, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
@@ -1214,7 +1311,7 @@ exit 0`, home, home, home, home, home)
 			}
 		}
 		// Interactive shell: no timeout, index-free anchor
-		svc := resolveService(project, paths.Overlays)
+	svc := resolveService(project, paths.OverlayPaths)
 		anchor := "/workspace/.devhome"
 		base := "/workspace/.devhomes"
 		if project == "dev-all" {
@@ -1473,7 +1570,7 @@ exit 0`, home, home, home, home, home)
 		// Compute per-agent HOME depending on overlay
 		repoName := "ouroboros-ide"
 		if project == "dev-all" {
-			if cfg, err := config.ReadAll(paths.Overlays, project); err == nil && strings.TrimSpace(cfg.Defaults.Repo) != "" {
+			if cfg, _, err := config.ReadAll(paths.OverlayPaths, project); err == nil && strings.TrimSpace(cfg.Defaults.Repo) != "" {
 				repoName = cfg.Defaults.Repo
 			}
 		}
@@ -1484,7 +1581,7 @@ exit 0`, home, home, home, home, home)
 			base = "/workspaces/dev/.devhomes"
 		}
 		{
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			runAnchorPlan(dryRun, files, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
 		}
 		// copy keys (attempt both types) and known_hosts
@@ -1527,11 +1624,11 @@ exit 0`, home, home, home, home, home)
 		// We’ll call BuildWriteSteps once for ed25519 (if present) to place id_ed25519(.pub),
 		// then manually write id_rsa if present.
 		for _, step := range sshw.BuildWriteSteps(anchor, edBytes, pubData, knownBytes, cfg) {
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			execServiceIdxInput(dryRun, files, svc, idx, step.Content, step.Script)
 		}
 		if hasRsa {
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			// write id_rsa with 600 perms
 			execServiceIdxInput(dryRun, files, svc, idx, rsaBytes, "cat > '"+anchor+"'/.ssh/id_rsa && chmod 600 '"+anchor+"'/.ssh/id_rsa")
 		}
@@ -1539,7 +1636,7 @@ exit 0`, home, home, home, home, home)
 		{
 			repoPath := pth.AgentRepoPath(project, idx, repoName)
 			for _, sc := range sshw.BuildConfigureScripts(anchor, repoPath) {
-				svc := resolveService(project, paths.Root)
+				svc := resolveService(project, paths.OverlayPaths)
 				execServiceIdx(dryRun, files, svc, idx, sc)
 			}
 		}
@@ -1552,7 +1649,7 @@ exit 0`, home, home, home, home, home)
 		anchor := "/workspace/.devhome"
 		{
 			script := fmt.Sprintf("set -e; export HOME=%q; cfg=\"$HOME/.ssh/config\"; ssh -F \"$cfg\" -T github.com -o BatchMode=yes || true", anchor)
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			execServiceIdx(dryRun, files, svc, idx, script)
 		}
 	case "repo-config-ssh":
@@ -1576,7 +1673,7 @@ exit 0`, home, home, home, home, home)
 		home := "/workspace/.devhome-agent" + idx
 		cmd := "set -euo pipefail; export HOME='" + home + "'; cd '" + dest + "'; url=$(git remote get-url origin 2>/dev/null || true); if [ -z \"$url\" ]; then echo 'No origin remote configured' >&2; exit 1; fi; if [[ \"$url\" =~ ^https://github.com/([^/]+)/([^/.]+)(\\.git)?$ ]]; then newurl=git@github.com:${BASH_REMATCH[1]}/${BASH_REMATCH[2]}.git; echo Setting SSH origin to \"$newurl\"; git remote set-url origin \"$newurl\"; else echo \"Origin already SSH: $url\"; fi"
 		{
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			execServiceIdx(dryRun, files, svc, idx, cmd)
 		}
 	case "repo-config-https":
@@ -1599,7 +1696,7 @@ exit 0`, home, home, home, home, home)
 		}
 		cmd := "set -euo pipefail; cd '" + dest + "'; url=$(git remote get-url origin 2>/dev/null || true); if [ -z \"$url\" ]; then echo 'No origin remote configured' >&2; exit 1; fi; if [[ \"$url\" =~ ^git@github.com:([^/]+)/([^/.]+)(\\.git)?$ ]]; then newurl=https://github.com/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}.git; echo Setting HTTPS origin to \"$newurl\"; git remote set-url origin \"$newurl\"; else echo \"Origin already HTTPS: $url\"; fi"
 		{
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			execServiceIdx(dryRun, files, svc, idx, cmd)
 		}
 	case "repo-push-ssh":
@@ -1627,7 +1724,7 @@ exit 0`, home, home, home, home, home)
 		home := "/workspace/.devhome-agent" + idx
 		cmd := "set -euo pipefail; home=\"" + home + "\"; export HOME=\"$home\"; cd '" + dest + "'; cur=$(git rev-parse --abbrev-ref HEAD); url=$(git remote get-url origin 2>/dev/null || true); if [ -z \"$url\" ]; then echo 'No origin remote configured' >&2; exit 1; fi; if [[ \"$url\" =~ ^https://github.com/([^/]+)/([^/.]+)(\\.git)?$ ]]; then newurl=git@github.com:${BASH_REMATCH[1]}/${BASH_REMATCH[2]}.git; echo Setting SSH origin to \"$newurl\"; git remote set-url origin \"$newurl\"; fi; echo Pushing branch \"$cur\" to origin...; GIT_SSH_COMMAND=\"ssh -F \\\"$home/.ssh/config\\\"\" git push -u origin HEAD"
 		{
-			svc := resolveService(project, paths.Overlays)
+			svc := resolveService(project, paths.OverlayPaths)
 			execServiceIdx(dryRun, files, svc, idx, cmd)
 		}
 	case "repo-push-https":
@@ -1652,7 +1749,7 @@ exit 0`, home, home, home, home, home)
 		cmd := "set -euo pipefail; cd '" + dest + "'; echo Pushing branch $(git rev-parse --abbrev-ref HEAD) to origin...; git push -u origin HEAD"
 		// call repo-config-https first? skipped for simplicity
 		{
-			svc := resolveService(project, paths.Root)
+			svc := resolveService(project, paths.OverlayPaths)
 			runner.Compose(dryRun, files, "exec", "--index", idx, svc, "bash", "-lc", cmd)
 		}
 	case "worktrees-init":
@@ -1947,7 +2044,7 @@ exit 0`, home, home, home, home, home)
 			n = mustAtoi(sub[1])
 		} else {
 			// Try overlay defaults
-			cfg, _ := config.ReadAll(paths.Overlays, project)
+			cfg, _, _ := config.ReadAll(paths.OverlayPaths, project)
 			if strings.TrimSpace(cfg.Defaults.Repo) == "" || cfg.Defaults.Agents < 1 {
 				die("Usage: -p dev-all bootstrap <repo> <count> (or set defaults in overlays/dev-all/devkit.yaml)")
 			}
@@ -1966,7 +2063,7 @@ exit 0`, home, home, home, home, home)
 			runner.Host(dryRun, "git", "-C", repoPath, "config", "worktree.useRelativePaths", "true")
 			base := "agent"
 			baseBranch := "main"
-			cfg, _ := config.ReadAll(paths.Overlays, project)
+			cfg, _, _ := config.ReadAll(paths.OverlayPaths, project)
 			if strings.TrimSpace(cfg.Defaults.BranchPrefix) != "" {
 				base = cfg.Defaults.BranchPrefix
 			}
@@ -2108,12 +2205,9 @@ func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
 	if ctx.DryRun {
 		return
 	}
-	svc := resolveService(ctx.Project, ctx.Paths.Overlays)
+svc := resolveService(ctx.Project, ctx.Paths.OverlayPaths)
 	if strings.TrimSpace(svc) == "" {
 		svc = "dev-agent"
-	}
-	if svc != "dev-agent" {
-		return
 	}
 	names := listServiceNamesProject(projectName, svc)
 	if len(names) == 0 {

@@ -19,7 +19,7 @@ func TestReadHooks_FromYaml(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(over, "devkit.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadHooks(filepath.Join(dir, "overlays"), "proj")
+    got, err := ReadHooks([]string{filepath.Join(dir, "overlays")}, "proj")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,14 +43,30 @@ func TestReadAllIncludesWorkspaceAndEnv(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(over, "devkit.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadAll(filepath.Join(dir, "overlays"), "proj")
-	if err != nil {
-		t.Fatalf("ReadAll error: %v", err)
-	}
-	if got.Workspace != "../../my-repo" {
-		t.Fatalf("workspace=%q", got.Workspace)
-	}
-	if got.Env == nil || got.Env["FOO"] != "bar" || got.Env["BAZ"] != "qux" {
-		t.Fatalf("env=%v", got.Env)
-	}
+    cfg, dirPath, err := ReadAll([]string{filepath.Join(dir, "overlays")}, "proj")
+    if err != nil {
+        t.Fatalf("ReadAll error: %v", err)
+    }
+    if dirPath != over {
+        t.Fatalf("overlay dir=%q", dirPath)
+    }
+    if cfg.Workspace != "../../my-repo" {
+        t.Fatalf("workspace=%q", cfg.Workspace)
+    }
+    if cfg.Env == nil || cfg.Env["FOO"] != "bar" || cfg.Env["BAZ"] != "qux" {
+        t.Fatalf("env=%v", cfg.Env)
+    }
+}
+
+func TestReadAllSkipsMissing(t *testing.T) {
+    cfg, dirPath, err := ReadAll([]string{"/does/not/exist"}, "proj")
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if dirPath != "" {
+        t.Fatalf("expected empty dir, got %q", dirPath)
+    }
+    if cfg.Env != nil && len(cfg.Env) > 0 {
+        t.Fatalf("expected empty env, got %v", cfg.Env)
+    }
 }
