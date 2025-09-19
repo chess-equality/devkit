@@ -82,13 +82,18 @@ func BuildAnchorScripts(cfg AnchorConfig) []string {
 		"if [ \"$dev_home_ok\" = 1 ] && [ -n \"${DOCKER_HOST:-}\" ]; then printf \"docker.host=%s\\n\" \"$DOCKER_HOST\" > \"$target/.testcontainers.properties\"; ln -sfn \"$target/.testcontainers.properties\" /home/dev/.testcontainers.properties; fi",
 	}
 	if cfg.SeedCodex {
-		parts = append(parts,
+		seedSteps := []string{
 			WaitForHostMountsScript(),
 			"rm -rf \"$target/.codex\"",
 			"mkdir -p \"$target/.codex\" \"$target/.codex/rollouts\" \"$target/.cache\" \"$target/.config\" \"$target/.local\"",
 			"if [ -d /var/host-codex ]; then cp -a /var/host-codex/. \"$target/.codex/\"; fi",
 			"if [ ! -f \"$target/.codex/auth.json\" ] && [ -r /var/auth.json ]; then cp -f /var/auth.json \"$target/.codex/auth.json\"; fi",
 			"if [ -f \"$target/.codex/auth.json\" ]; then chmod 600 \"$target/.codex/auth.json\"; fi",
+			"touch \"$marker\"",
+		}
+		parts = append(parts,
+			"marker=\"$target/.codex/.seeded\"",
+			"if [ ! -f \"$marker\" ]; then "+strings.Join(seedSteps, "; ")+"; fi",
 		)
 	}
 	return []string{strings.Join(parts, "; ")}

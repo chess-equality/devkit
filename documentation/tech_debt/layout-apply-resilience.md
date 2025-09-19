@@ -25,3 +25,8 @@ The mixed layout fix exposed several fragilities in our tmux orchestration and c
 
 ## Priority
 Medium — windows now render correctly, but the above improvements would make the workflow more transparent and resilient, reducing future regressions and shortening debugging loops.
+
+## Updates (2025-09-19)
+- ✅ Container resolution and seeding logic now lives in `internal/agentexec`, shared by `layout-apply`, `tmux-sync`, and `tmux-add-cd`.
+- ✅ Anchor seeding skips when a container-local marker (`$target/.codex/.seeded`) is present to avoid clobbering reused containers.
+- ✅ New `layout-validate` command surfaces missing overlays, count mismatches, and duplicate window/container pairs before tmux orchestration.

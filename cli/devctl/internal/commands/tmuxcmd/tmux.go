@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	agentexec "devkit/cli/devctl/internal/agentexec"
 	"devkit/cli/devctl/internal/cmdregistry"
 	"devkit/cli/devctl/internal/compose"
 	"devkit/cli/devctl/internal/layout"
@@ -20,7 +21,8 @@ func Register(
 	defaultSessionFn func(string) string,
 	atoiFn func(string) int,
 	listFn func([]string, string) []string,
-	buildFn func([]string, string, string, string, string) string,
+	buildFn func([]string, string, string, string, string, *agentexec.SeedTracker) (string, error),
+	trackerFn func() *agentexec.SeedTracker,
 	hasFn func(string) bool,
 ) {
 	doSyncTmux = syncFn
@@ -29,6 +31,7 @@ func Register(
 	mustAtoi = atoiFn
 	listServiceNames = listFn
 	buildWindowCmd = buildFn
+	newSeedTracker = trackerFn
 	hasTmuxSession = hasFn
 
 	r.Register("tmux-sync", handleSync)
@@ -160,6 +163,10 @@ func handleApplyLayout(ctx *cmdregistry.Context) error {
 		}
 	}
 	sessExists := hasTmuxSession(sessName)
+	tracker := newSeedTracker()
+	if tracker == nil {
+		tracker = agentexec.NewSeedTracker()
+	}
 	if !sessExists && len(lf.Windows) > 0 {
 		w := lf.Windows[0]
 		idx := fmt.Sprintf("%d", w.Index)
@@ -180,7 +187,10 @@ func handleApplyLayout(ctx *cmdregistry.Context) error {
 		if strings.TrimSpace(name) == "" {
 			name = "agent-" + idx
 		}
-		cmdStr := buildWindowCmd(fargs, winProj, idx, dest, svc)
+		cmdStr, err := buildWindowCmd(fargs, winProj, idx, dest, svc, tracker)
+		if err != nil {
+			return err
+		}
 		runner.Host(ctx.DryRun, "tmux", tmuxutil.NewSession(sessName, cmdStr)...)
 		runner.Host(ctx.DryRun, "tmux", tmuxutil.RenameWindow(sessName+":0", name)...)
 		sessExists = true
@@ -204,7 +214,10 @@ func handleApplyLayout(ctx *cmdregistry.Context) error {
 		if strings.TrimSpace(name) == "" {
 			name = "agent-" + idx
 		}
-		cmdStr := buildWindowCmd(fargs, winProj, idx, dest, svc)
+		cmdStr, err := buildWindowCmd(fargs, winProj, idx, dest, svc, tracker)
+		if err != nil {
+			return err
+		}
 		runner.Host(ctx.DryRun, "tmux", tmuxutil.NewWindow(sessName, name, cmdStr)...)
 	}
 	if doAttach {
@@ -226,6 +239,7 @@ var (
 	defaultSessionName          func(string) string
 	mustAtoi                    func(string) int
 	listServiceNames            func([]string, string) []string
-	buildWindowCmd              func([]string, string, string, string, string) string
+	buildWindowCmd              func([]string, string, string, string, string, *agentexec.SeedTracker) (string, error)
+	newSeedTracker              func() *agentexec.SeedTracker
 	hasTmuxSession              func(string) bool
 )

@@ -42,8 +42,11 @@ func TestBuildAnchorScripts(t *testing.T) {
 		"dev_home_ok=0; if mkdir -p /home/dev 2>/dev/null; then dev_home_ok=1; elif [ -d /home/dev ]; then dev_home_ok=1; fi",
 		"ln -sfn \"$target\" \"/workspace/.devhome\"",
 		"mkdir -p \"$target/.sbt\"",
-		"if [ \"$dev_home_ok\" = 1 ] && [ -n \"${DOCKER_HOST:-}\" ]; then printf 'docker.host=%s\\n' \"$DOCKER_HOST\" > \"$target/.testcontainers.properties\"; ln -sfn \"$target/.testcontainers.properties\" /home/dev/.testcontainers.properties; fi",
+		"if [ \"$dev_home_ok\" = 1 ] && [ -n \"${DOCKER_HOST:-}\" ]; then printf \"docker.host=%s\\n\" \"$DOCKER_HOST\" > \"$target/.testcontainers.properties\"; ln -sfn \"$target/.testcontainers.properties\" /home/dev/.testcontainers.properties; fi",
 		"ln -sfn \"$target/.sbt\" /home/dev/.sbt",
+		"marker=\"$target/.codex/.seeded\"",
+		"if [ ! -f \"$marker\" ]; then",
+		"touch \"$marker\"",
 		"rm -rf \"$target/.codex\"",
 		"cp -a /var/host-codex/. \"$target/.codex/\"",
 	} {
