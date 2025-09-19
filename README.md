@@ -2,13 +2,32 @@ Dev Kit — Reusable Containerized Dev Environment
 
 This dev kit extracts the dual‑network, allowlisted egress development setup into a reusable package you can apply to any project in your `dev/` or `projects/` folder via small per‑project overlays.
 
-Quick start (with the built‑in `codex` overlay):
-- Build once: `cd devkit/cli/devctl && make build` (outputs `devkit/kit/bin/devctl`).
-- Bring up: `devkit/kit/scripts/devkit up` (defaults to `-p codex`)
-- Exec shell: `devkit/kit/scripts/devkit exec 0 bash`
-- Add allowlist domain: `devkit/kit/scripts/devkit allow example.com`
-- Hardened + DNS profiles: `devkit/kit/scripts/devkit up --profile hardened,dns`
-- Tear down: `devkit/kit/scripts/devkit down`
+## Before You Begin
+
+Make sure the base toolchain is available on your host before trying to launch the kit:
+
+- Docker Engine with the Compose plugin (or Docker Desktop) and permission to run containers.
+- Go 1.21+ and `make` to build the CLI binary.
+- `tmux` (optional but required for the tmux helpers to function).
+- SSH key and optional Codex auth material in your home directory (`~/.ssh/id_ed25519` / `~/.ssh/id_rsa`, `~/.codex/auth.json`).
+
+Run a quick compatibility check once the repo is cloned:
+
+```
+scripts/devkit preflight
+```
+
+The preflight command validates Docker/Compose, tmux, SSH keys, and Codex credentials and prints concrete follow-up steps for anything that is missing.
+
+## Quick Start (codex overlay)
+
+- Build the CLI (one time): `cd devkit/cli/devctl && make build` (outputs `devkit/kit/bin/devctl`).
+- Verify the environment: `scripts/devkit preflight`.
+- Start the default stack: `devkit/kit/scripts/devkit up` (defaults to `-p codex`).
+- Open a shell inside agent 0: `devkit/kit/scripts/devkit exec 0 bash`.
+- Allow a new domain through the proxy: `devkit/kit/scripts/devkit allow example.com`.
+- Opt into extra hardening: `devkit/kit/scripts/devkit up --profile hardened,dns`.
+- Shut everything down: `devkit/kit/scripts/devkit down`.
 
 Credential pool (proposal, opt‑in):
 - For teams needing multiple Codex identities, see `kit/docs/proposals/codex-credential-pool.md`.
@@ -183,3 +202,13 @@ Postgres test broker plan
 Proposal: Bash → Go CLI Migration
 - Rationale, scope, and plan to migrate `kit/scripts/devctl` to a typed CLI while keeping shell shims.
 - See: `kit/docs/proposals/devkit-cli-migration.md`.
+
+## Portability and Onboarding Roadmap
+
+We are actively smoothing the first-run experience so the devkit works out of the box on more hosts. Upcoming changes include:
+
+- Replacing `readlink -f` in wrapper scripts with POSIX-friendly path resolution so macOS users can launch the toolkit without additional dependencies.
+- Expanding `overlays/<project>/devkit.yaml` to accept `workspace` and overlay `env` values, letting the CLI wire mounts and environment variables without hard-coded relative paths in Compose files.
+- Improving the CLI bootstrap flow so a missing binary can be built automatically (or with a single prompt) instead of failing with a bare error message.
+
+Contributions that help test these items across operating systems are welcome; see the proposals in `kit/docs/` for discussion threads and status updates.
