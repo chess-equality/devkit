@@ -47,6 +47,19 @@ func anchorHome(project string) string {
 	return "/workspace/.devhome"
 }
 
+func composeProjectName(project string) string {
+	if v := strings.TrimSpace(os.Getenv("COMPOSE_PROJECT_NAME")); v != "" {
+		return v
+	}
+	p := strings.TrimSpace(project)
+	switch p {
+	case "", "codex":
+		return "devkit"
+	default:
+		return "devkit-" + p
+	}
+}
+
 func anchorBase(project string) string {
 	if strings.TrimSpace(project) == "dev-all" {
 		return "/workspaces/dev/.devhomes"
@@ -124,6 +137,31 @@ func listServiceNames(files []string, service string) []string {
 		service = "dev-agent"
 	}
 	args := append([]string{"compose"}, append(files, []string{"ps", "--format", "{{.Name}}", service}...)...)
+	out, _ := execx.Capture(ctx, "docker", args...)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	names := make([]string, 0, len(lines))
+	for _, s := range lines {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			names = append(names, s)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func listServiceNamesProject(project, service string) []string {
+	project = strings.TrimSpace(project)
+	ctx, cancel := execx.WithTimeout(30 * time.Second)
+	defer cancel()
+	if project == "" {
+		return listServiceNamesAny(service)
+	}
+	args := []string{"ps", "--filter", "label=com.docker.compose.project=" + project}
+	if strings.TrimSpace(service) != "" {
+		args = append(args, "--filter", "label=com.docker.compose.service="+service)
+	}
+	args = append(args, "--format", "{{.Names}}")
 	out, _ := execx.Capture(ctx, "docker", args...)
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	names := make([]string, 0, len(lines))
@@ -488,6 +526,15 @@ func main() {
 		Exe:     exe,
 	}
 	if handler, ok := registry.Lookup(cmd); ok {
+		if cmd == "up" {
+			pname := composeProjectName(ctx.Project)
+			composecmd.CleanupSharedInfra(ctx.DryRun, pname, ctx.Files)
+			if err := handler(ctx); err != nil {
+				die(err.Error())
+			}
+			seedAfterUp(ctx, pname)
+			return
+		}
 		if err := handler(ctx); err != nil {
 			die(err.Error())
 		}
@@ -599,28 +646,11 @@ func main() {
 				die("worktrees setup failed: " + err.Error())
 			}
 		}
-		// 0.5) Proactively tear down and remove networks for target compose projects to avoid CIDR/IP mismatch
-		projSet := map[string]struct{}{}
-		for _, ov := range lf.Overlays {
-			pname := strings.TrimSpace(ov.ComposeProject)
-			if pname == "" {
-				pname = "devkit-" + strings.TrimSpace(ov.Project)
-			}
-			if pname == "" {
-				continue
-			}
-			if _, seen := projSet[pname]; seen {
-				continue
-			}
-			projSet[pname] = struct{}{}
-		}
-		for pname := range projSet {
-			// Strict teardown to avoid stale networks with mismatched IPAM
-			runner.Host(dryRun, "docker", "compose", "-p", pname, "down", "--remove-orphans")
-			runner.HostBestEffort(dryRun, "docker", "network", "rm", pname+"_dev-internal", pname+"_dev-egress")
-		}
+		// 0.5) Track which compose projects have been cleaned to avoid stale shared containers across overlays.
+		cleanedProjects := map[string]bool{}
 		// 1) Bring up overlays with their own profiles and project names
 		projMap := map[string]string{}
+		seededContainer := map[string]bool{}
 		for _, ov := range lf.Overlays {
 			ovProj := strings.TrimSpace(ov.Project)
 			if ovProj == "" {
@@ -641,6 +671,10 @@ func main() {
 			pname := ov.ComposeProject
 			if strings.TrimSpace(pname) == "" {
 				pname = "devkit-" + ovProj
+			}
+			if !cleanedProjects[pname] {
+				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
+				cleanedProjects[pname] = true
 			}
 			projMap[ovProj] = pname
 			args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
@@ -665,43 +699,14 @@ func main() {
 			} else {
 				svc = strings.TrimSpace(svc)
 			}
+			if svc != "dev-agent" {
+				continue
+			}
 			cnt := ov.Count
 			if cnt < 1 {
 				cnt = 1
 			}
-			// host keys and known_hosts
-			hostEd := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
-			hostRsa := filepath.Join(os.Getenv("HOME"), ".ssh", "id_rsa")
-			edBytes, _ := os.ReadFile(hostEd)
-			rsaBytes, _ := os.ReadFile(hostRsa)
-			known := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
-			knownBytes, _ := os.ReadFile(known)
-			for i := 1; i <= cnt; i++ {
-				idx := fmt.Sprintf("%d", i)
-				// ensure anchor and seed codex
-				base := anchorBase(ovProj)
-				anchor := anchorHome(ovProj)
-				runAnchorPlan(dryRun, filesOv, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
-				// write ssh config + keys as available
-				cfg := sshcfg.BuildGitHubConfigFor(anchor, len(edBytes) > 0, len(rsaBytes) > 0)
-				if len(edBytes) > 0 {
-					execServiceIdxInput(dryRun, filesOv, svc, idx, edBytes, "cat > '"+anchor+"'/.ssh/id_ed25519 && chmod 600 '"+anchor+"'/.ssh/id_ed25519")
-					// write pub if present (best effort)
-					pubBytes, _ := os.ReadFile(hostEd + ".pub")
-					if len(pubBytes) > 0 {
-						execServiceIdxInput(dryRun, filesOv, svc, idx, pubBytes, "cat > '"+anchor+"'/.ssh/id_ed25519.pub && chmod 644 '"+anchor+"'/.ssh/id_ed25519.pub")
-					}
-				}
-				if len(rsaBytes) > 0 {
-					execServiceIdxInput(dryRun, filesOv, svc, idx, rsaBytes, "cat > '"+anchor+"'/.ssh/id_rsa && chmod 600 '"+anchor+"'/.ssh/id_rsa")
-				}
-				if len(knownBytes) > 0 {
-					execServiceIdxInput(dryRun, filesOv, svc, idx, knownBytes, "cat > '"+anchor+"'/.ssh/known_hosts && chmod 644 '"+anchor+"'/.ssh/known_hosts")
-				}
-				execServiceIdxInput(dryRun, filesOv, svc, idx, []byte(cfg), "cat > '"+anchor+"'/.ssh/config && chmod 600 '"+anchor+"'/.ssh/config")
-				// configure global core.sshCommand in the anchor HOME
-				execServiceIdx(dryRun, filesOv, svc, idx, "home='"+anchor+"'; HOME=\"$home\" git config --global core.sshCommand 'ssh -F ~/.ssh/config'")
-			}
+			configureSSHAndGit(dryRun, filesOv, ovProj, svc, cnt)
 		}
 		// 2) Apply windows into tmux using the composed project names
 		sessName := strings.TrimSpace(lf.Session)
@@ -736,7 +741,23 @@ func main() {
 			if strings.TrimSpace(pname) == "" {
 				pname = "devkit-" + winProj
 			}
-			cmdStr := buildWindowCmdWithProject(fargs, winProj, idx, dest, svc, pname)
+			idxInt, _ := strconv.Atoi(idx)
+			if idxInt < 1 {
+				idxInt = 1
+			}
+			containerName := ""
+			skipSeed := false
+			if !dryRun {
+				containerName = resolveContainerName(pname, svc, idxInt)
+				if strings.TrimSpace(containerName) != "" {
+					if seededContainer[containerName] {
+						skipSeed = true
+					} else {
+						seededContainer[containerName] = true
+					}
+				}
+			}
+			cmdStr := buildWindowCmdWithProject(fargs, winProj, idx, dest, svc, pname, containerName, skipSeed)
 			runner.Host(dryRun, "tmux", tmuxutil.NewSession(sessName, cmdStr)...)
 			runner.Host(dryRun, "tmux", tmuxutil.RenameWindow(sessName+":0", name)...)
 			createdSession = true
@@ -769,7 +790,23 @@ func main() {
 			if strings.TrimSpace(pname) == "" {
 				pname = "devkit-" + winProj
 			}
-			cmdStr := buildWindowCmdWithProject(fargs, winProj, idx, dest, svc, pname)
+			idxInt, _ := strconv.Atoi(idx)
+			if idxInt < 1 {
+				idxInt = 1
+			}
+			containerName := ""
+			skipSeed := false
+			if !dryRun {
+				containerName = resolveContainerName(pname, svc, idxInt)
+				if strings.TrimSpace(containerName) != "" {
+					if seededContainer[containerName] {
+						skipSeed = true
+					} else {
+						seededContainer[containerName] = true
+					}
+				}
+			}
+			cmdStr := buildWindowCmdWithProject(fargs, winProj, idx, dest, svc, pname, containerName, skipSeed)
 			runner.Host(dryRun, "tmux", tmuxutil.NewWindow(sessName, name, cmdStr)...)
 		}
 		if doAttach {
@@ -2043,8 +2080,33 @@ func buildWindowCmd(fileArgs []string, project, idx, dest, service string) strin
 		"docker exec -it \"$name\" bash -lc '" + shell + "'"
 }
 
+func resolveContainerName(composeProject, service string, index int) string {
+	composeProject = strings.TrimSpace(composeProject)
+	service = strings.TrimSpace(service)
+	if composeProject == "" {
+		return ""
+	}
+	if index < 1 {
+		index = 1
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		names := listServiceNamesProject(composeProject, service)
+		if len(names) > 0 {
+			if index <= len(names) {
+				return names[index-1]
+			}
+			return names[0]
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // buildWindowCmdWithProject composes a docker exec that targets a specific compose project/service window.
-func buildWindowCmdWithProject(fileArgs []string, project, idx, dest, service, composeProject string) string {
+func buildWindowCmdWithProject(fileArgs []string, project, idx, dest, service, composeProject string, containerName string, skipSeed bool) string {
 	if strings.TrimSpace(service) == "" {
 		service = "dev-agent"
 	}
@@ -2058,7 +2120,7 @@ func buildWindowCmdWithProject(fileArgs []string, project, idx, dest, service, c
 	// Anchor HOME (index-free)
 	anchor := anchorHome(project)
 	base := anchorBase(project)
-	anchorScripts := seed.BuildAnchorScripts(seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
+	anchorScripts := seed.BuildAnchorScripts(seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: !skipSeed})
 	if joined := seed.JoinScripts(anchorScripts); joined != "" {
 		b.WriteString(joined)
 		b.WriteString("; ")
@@ -2067,9 +2129,12 @@ func buildWindowCmdWithProject(fileArgs []string, project, idx, dest, service, c
 	fmt.Fprintf(&b, "git config --global user.name %s && git config --global user.email %s; ", shSingleQuote(gname), shSingleQuote(gemail))
 	fmt.Fprintf(&b, "cd %q 2>/dev/null || true; exec bash", dest)
 	shell := b.String()
-	// When composeProject is provided, pick Nth container by labels to avoid file ambiguity
+	script := shSingleQuote(shell)
 	if strings.TrimSpace(composeProject) == "" {
 		return buildWindowCmd(fileArgs, project, idx, dest, service)
+	}
+	if strings.TrimSpace(containerName) != "" {
+		return "docker exec -it " + shSingleQuote(containerName) + " bash -lc " + script
 	}
 	find := fmt.Sprintf(
 		"name=''; for i in $(seq 1 120); do "+
@@ -2081,12 +2146,66 @@ func buildWindowCmdWithProject(fileArgs []string, project, idx, dest, service, c
 		shSingleQuote(composeProject), shSingleQuote(service), idx,
 		shSingleQuote(composeProject), shSingleQuote(service))
 	return find + "if [ -z \"$name\" ]; then echo 'No container for " + composeProject + "/" + service + " yet.'; exec bash; fi; " +
-		"docker exec -it \"$name\" bash -lc '" + shell + "'"
+		"docker exec -it \"$name\" bash -lc " + script
 }
 
 func runAnchorPlan(dry bool, files []string, service, idx string, cfg seed.AnchorConfig) {
 	for _, script := range seed.BuildAnchorScripts(cfg) {
 		execServiceIdx(dry, files, service, idx, script)
+	}
+}
+
+func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
+	if ctx.DryRun {
+		return
+	}
+	svc := resolveService(ctx.Project, ctx.Paths.Overlays)
+	if strings.TrimSpace(svc) == "" {
+		svc = "dev-agent"
+	}
+	if svc != "dev-agent" {
+		return
+	}
+	names := listServiceNamesProject(projectName, svc)
+	if len(names) == 0 {
+		names = listServiceNames(ctx.Files, svc)
+	}
+	cnt := len(names)
+	if cnt == 0 {
+		return
+	}
+	configureSSHAndGit(ctx.DryRun, ctx.Files, ctx.Project, svc, cnt)
+}
+
+func configureSSHAndGit(dry bool, files []string, project string, service string, count int) {
+	hostEd := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
+	hostRsa := filepath.Join(os.Getenv("HOME"), ".ssh", "id_rsa")
+	edBytes, _ := os.ReadFile(hostEd)
+	rsaBytes, _ := os.ReadFile(hostRsa)
+	known := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
+	knownBytes, _ := os.ReadFile(known)
+	for i := 1; i <= count; i++ {
+		idx := fmt.Sprintf("%d", i)
+		base := anchorBase(project)
+		anchor := anchorHome(project)
+		runAnchorPlan(dry, files, service, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
+		cfg := sshcfg.BuildGitHubConfigFor(anchor, len(edBytes) > 0, len(rsaBytes) > 0)
+		if len(edBytes) > 0 {
+			execServiceIdxInput(dry, files, service, idx, edBytes, "cat > '"+anchor+"'/.ssh/id_ed25519 && chmod 600 '"+anchor+"'/.ssh/id_ed25519")
+			pubBytes, _ := os.ReadFile(hostEd + ".pub")
+			if len(pubBytes) > 0 {
+				execServiceIdxInput(dry, files, service, idx, pubBytes, "cat > '"+anchor+"'/.ssh/id_ed25519.pub && chmod 644 '"+anchor+"'/.ssh/id_ed25519.pub")
+			}
+		}
+		if len(rsaBytes) > 0 {
+			execServiceIdxInput(dry, files, service, idx, rsaBytes, "cat > '"+anchor+"'/.ssh/id_rsa && chmod 600 '"+anchor+"'/.ssh/id_rsa")
+		}
+		if len(knownBytes) > 0 {
+			execServiceIdxInput(dry, files, service, idx, knownBytes, "cat > '"+anchor+"'/.ssh/known_hosts && chmod 644 '"+anchor+"'/.ssh/known_hosts")
+		}
+		execServiceIdxInput(dry, files, service, idx, []byte(cfg), "cat > '"+anchor+"'/.ssh/config && chmod 600 '"+anchor+"'/.ssh/config")
+		cmd := fmt.Sprintf(`home='%s'; dev_home=/home/dev; if [ -d "$dev_home" ] && [ -w "$dev_home" ]; then mkdir -p "$dev_home/.ssh" && ln -sfn "$home/.ssh" "$dev_home/.ssh"; fi; mkdir -p "$home"; touch "$home/.gitconfig"; git config --file "$home/.gitconfig" core.sshCommand 'ssh -F %s/.ssh/config'; if [ -d "$dev_home" ] && [ -w "$dev_home" ]; then ln -sfn "$home/.gitconfig" "$dev_home/.gitconfig"; fi`, anchor, anchor)
+		execServiceIdx(dry, files, service, idx, cmd)
 	}
 }
 

@@ -79,7 +79,7 @@ func BuildAnchorScripts(cfg AnchorConfig) []string {
 		"if [ \"$dev_home_ok\" = 1 ]; then if [ -d /home/dev/.ivy2 ]; then ln -sfn /home/dev/.ivy2 \"$target/.ivy2\"; fi; fi",
 		"if [ \"$dev_home_ok\" = 1 ]; then if [ -e /home/dev/.sbt ] || [ -L /home/dev/.sbt ]; then rm -rf /home/dev/.sbt; fi; ln -sfn \"$target/.sbt\" /home/dev/.sbt; fi",
 		"if [ \"$dev_home_ok\" = 1 ]; then if [ -d /home/dev/.cache/coursier ]; then ln -sfn /home/dev/.cache/coursier \"$target/.cache/coursier\"; fi; fi",
-		"if [ \"$dev_home_ok\" = 1 ] && [ -n \"${DOCKER_HOST:-}\" ]; then printf 'docker.host=%s\\n' \"$DOCKER_HOST\" > \"$target/.testcontainers.properties\"; ln -sfn \"$target/.testcontainers.properties\" /home/dev/.testcontainers.properties; fi",
+		"if [ \"$dev_home_ok\" = 1 ] && [ -n \"${DOCKER_HOST:-}\" ]; then printf \"docker.host=%s\\n\" \"$DOCKER_HOST\" > \"$target/.testcontainers.properties\"; ln -sfn \"$target/.testcontainers.properties\" /home/dev/.testcontainers.properties; fi",
 	}
 	if cfg.SeedCodex {
 		parts = append(parts,
