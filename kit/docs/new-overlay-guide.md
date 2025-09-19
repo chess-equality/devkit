@@ -7,8 +7,9 @@ This guide walks you through creating a new overlay under `devkit/overlays/<your
 
 Manual steps if not using the template:
 - overlays/<name>/devkit.yaml
-  - Required: `workspace: ../../<your-repo-folder>`
+  - Required: `workspace: ../../<your-repo-folder>` — the CLI resolves it to an absolute `WORKSPACE_DIR` before compose runs.
   - Recommended: `service: <service-name>` to set the default service for CLI exec/attach/ssh/repo commands.
+  - Optional: `env:` to provide host defaults (e.g., `AWS_PROFILE`) that users can still override.
   - Optional hooks: `warm`, `maintain` (run inside container via `devkit warm|maintain`).
 
 - overlays/<name>/compose.override.yml
@@ -41,7 +42,7 @@ services:
     networks:
       - dev-internal
     volumes:
-      - ../../<your-repo-folder>:/workspace:rw
+      - ${WORKSPACE_DIR:-.}:/workspace:rw
 
 networks:
   dev-internal:
@@ -62,6 +63,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ```
 workspace: ../../<your-repo-folder>
 service: frontend
+env:
+  AWS_PROFILE: dev
 hooks:
   warm: npm ci
   maintain: npm run build
@@ -103,7 +106,7 @@ Quoting pitfalls (important)
 
 8) Quick checklist
 - [ ] `devkit.yaml` created with `workspace` and `service`.
-- [ ] Compose override uses correct `build.context` path and joins `dev-internal`.
+- [ ] Compose override uses correct `build.context` path, mounts `${WORKSPACE_DIR}` into `/workspace`, and joins `dev-internal`.
 - [ ] Dockerfile installs `netcat-openbsd` (for SSH proxy).
 - [ ] Container stays up (keepalive command) so tmux/exec can attach.
 - [ ] `ssh-setup` succeeds and `ssh-test` shows GitHub banner.

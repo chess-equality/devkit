@@ -29,6 +29,17 @@ The preflight command validates Docker/Compose, tmux, SSH keys, and Codex creden
 - Opt into extra hardening: `devkit/kit/scripts/devkit up --profile hardened,dns`.
 - Shut everything down: `devkit/kit/scripts/devkit down`.
 
+Tip: both `scripts/devkit` and `devkit/kit/scripts/devkit` now build the Go CLI automatically if the binary is missing, so a fresh clone can jump straight to `scripts/devkit up`.
+
+### Overlay configuration helpers
+
+Overlay metadata in `overlays/<project>/devkit.yaml` can now set:
+
+- `workspace`: path (relative to the overlay by default) that the CLI resolves to an absolute `WORKSPACE_DIR` before compose runs.
+- `env`: key/value pairs exported on the host unless already set, making it easy to share defaults like `AWS_PROFILE` across repos.
+
+Compose overrides should prefer `${WORKSPACE_DIR}` when mounting the repo into `/workspace`; the template overlay has been updated to illustrate the pattern.
+
 Credential pool (proposal, opt‑in):
 - For teams needing multiple Codex identities, see `kit/docs/proposals/codex-credential-pool.md`.
 - Summary: mount a read‑only pool of prepared Codex homes and seed agents from slots by index or per‑run shuffle. Defaults remain unchanged.
@@ -203,12 +214,18 @@ Proposal: Bash → Go CLI Migration
 - Rationale, scope, and plan to migrate `kit/scripts/devctl` to a typed CLI while keeping shell shims.
 - See: `kit/docs/proposals/devkit-cli-migration.md`.
 
-## Portability and Onboarding Roadmap
+## Portability and Onboarding Updates
 
-We are actively smoothing the first-run experience so the devkit works out of the box on more hosts. Upcoming changes include:
+Recent improvements:
 
-- Replacing `readlink -f` in wrapper scripts with POSIX-friendly path resolution so macOS users can launch the toolkit without additional dependencies.
-- Expanding `overlays/<project>/devkit.yaml` to accept `workspace` and overlay `env` values, letting the CLI wire mounts and environment variables without hard-coded relative paths in Compose files.
-- Improving the CLI bootstrap flow so a missing binary can be built automatically (or with a single prompt) instead of failing with a bare error message.
+- Wrapper scripts now rely on POSIX-compatible path resolution, eliminating the GNU `readlink -f` dependency on macOS and other BSD systems.
+- Overlay configs populate `WORKSPACE_DIR` and default environment variables automatically, removing most hard-coded relative paths from compose overrides.
+- Wrapper entrypoints auto-build the `devctl` binary with `make` when it is missing, so newcomers can launch the kit without a manual compile step.
 
-Contributions that help test these items across operating systems are welcome; see the proposals in `kit/docs/` for discussion threads and status updates.
+Next focus areas:
+
+- Add cross-platform smoke tests that exercise the wrapper scripts on macOS/Linux runners.
+- Provide `devctl doctor` diagnostics that bundle the preflight checks with workspace validation, reducing guesswork for first-time contributors.
+- Expand documentation with a troubleshooting matrix for common Docker/Compose startup failures.
+
+Contributions that help exercise these flows across operating systems are welcome; see the proposals in `kit/docs/` for discussion threads and status updates.

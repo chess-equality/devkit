@@ -25,10 +25,9 @@ services:
     networks:
       - dev-internal
     volumes:
-      # Mount your repo into /workspace (rw)
-      - ../../path-to-your-repo:/workspace:rw
+      # Mount your repo into /workspace (rw). The CLI fills WORKSPACE_DIR from devkit.yaml.
+      - ${WORKSPACE_DIR:-.}:/workspace:rw
 
 networks:
   dev-internal:
     external: true
-

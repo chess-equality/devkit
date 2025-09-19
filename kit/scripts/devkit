@@ -4,14 +4,28 @@ set -euo pipefail
 # Canonical entrypoint: exec the compiled Go CLI only.
 # No fallbacks. If missing, fail loudly with a clear message.
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-KIT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+KIT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 BIN="$KIT_DIR/bin/devctl"
 
-if [[ ! -x "$BIN" ]]; then
+ensure_cli() {
+  if [[ -x "$BIN" ]]; then
+    return 0
+  fi
+  if ! command -v make >/dev/null 2>&1; then
+    return 1
+  fi
+  echo "devkit: building CLI (make -C devkit/cli/devctl build)" >&2
+  if make -C "$KIT_DIR/../cli/devctl" build >/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+if ! ensure_cli; then
   echo "devkit error: missing CLI binary" >&2
   echo "Expected at: $BIN" >&2
-  echo "Build it with: make -C \"$KIT_DIR/../cli/devctl\" build" >&2
+  echo "Run 'make -C \"$KIT_DIR/../cli/devctl\" build' manually and retry." >&2
   exit 127
 fi
 

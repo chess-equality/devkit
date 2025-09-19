@@ -30,3 +30,27 @@ func TestReadHooks_FromYaml(t *testing.T) {
 		t.Fatalf("maintain=%q", got.Maintain)
 	}
 }
+
+func TestReadAllIncludesWorkspaceAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	over := filepath.Join(dir, "overlays", "proj")
+	if err := os.MkdirAll(over, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "" +
+		"workspace: ../../my-repo\n" +
+		"env:\n  FOO: bar\n  BAZ: qux\n"
+	if err := os.WriteFile(filepath.Join(over, "devkit.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadAll(filepath.Join(dir, "overlays"), "proj")
+	if err != nil {
+		t.Fatalf("ReadAll error: %v", err)
+	}
+	if got.Workspace != "../../my-repo" {
+		t.Fatalf("workspace=%q", got.Workspace)
+	}
+	if got.Env == nil || got.Env["FOO"] != "bar" || got.Env["BAZ"] != "qux" {
+		t.Fatalf("env=%v", got.Env)
+	}
+}

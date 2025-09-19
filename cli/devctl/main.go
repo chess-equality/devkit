@@ -158,6 +158,36 @@ func listServiceNamesProject(project, service string) []string {
 // listAgentNames returns running dev-agent container names (sorted) for the given compose files.
 func listAgentNames(files []string) []string { return listServiceNames(files, "dev-agent") }
 
+func applyOverlayEnv(cfg config.OverlayConfig, paths compose.Paths, project string) {
+	ws := strings.TrimSpace(cfg.Workspace)
+	if ws != "" {
+		resolved := ws
+		if !filepath.IsAbs(ws) {
+			base := paths.Root
+			if strings.TrimSpace(project) != "" {
+				base = filepath.Join(paths.Overlays, project)
+			}
+			resolved = filepath.Clean(filepath.Join(base, ws))
+		}
+		if cur, ok := os.LookupEnv("WORKSPACE_DIR"); !ok || strings.TrimSpace(cur) == "" {
+			_ = os.Setenv("WORKSPACE_DIR", resolved)
+		}
+	}
+	if len(cfg.Env) == 0 {
+		return
+	}
+	for key, val := range cfg.Env {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		if _, ok := os.LookupEnv(k); ok {
+			continue
+		}
+		_ = os.Setenv(k, val)
+	}
+}
+
 // listServiceNamesAny returns running containers for a service across all compose projects (fallback path).
 func listServiceNamesAny(service string) []string {
 	ctx, cancel := execx.WithTimeout(30 * time.Second)
@@ -459,6 +489,8 @@ func main() {
 
 	exe, _ := os.Executable()
 	paths, _ := compose.DetectPathsFromExe(exe)
+	overlayCfg, _ := config.ReadAll(paths.Overlays, project)
+	applyOverlayEnv(overlayCfg, paths, project)
 	files, err := compose.Files(paths, project, profile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -473,11 +505,7 @@ func main() {
 	if os.Getenv("DEVKIT_DEBUG") == "1" {
 		fmt.Fprintf(os.Stderr, "[devctl] internal subnet=%s dns_ip=%s\n", cidr, dns)
 	}
-	// Ensure codex overlay mounts the intended repo path via WORKSPACE_DIR
-	if project == "codex" {
-		devRoot := filepath.Clean(filepath.Join(paths.Root, ".."))
-		_ = os.Setenv("WORKSPACE_DIR", filepath.Join(devRoot, "ouroboros-ide"))
-	}
+
 
 	// honor --no-tmux by setting env used by skipTmux()
 	if noTmux {

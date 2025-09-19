@@ -1,11 +1,11 @@
+# Path to the repository to mount at /workspace. Relative paths resolve from this file.
 workspace: ../../path-to-your-repo
 service: app
 
-# Optional: environment to inject into your container
+# Optional: environment exported on the host before running compose commands
 env: {}
 
 # Optional hooks executed inside the container
 hooks:
   warm: ""
   maintain: ""
-

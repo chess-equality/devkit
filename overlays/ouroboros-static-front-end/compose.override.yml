@@ -37,7 +37,7 @@ services:
     networks:
       - dev-internal
     volumes:
-      - ../../ouroboros-static-front-end:/workspace:rw
+      - ${WORKSPACE_DIR:-.}:/workspace:rw
       # Cache directories for faster installs
       - npm-cache:/home/node/.npm
       - yarn-cache:/home/node/.cache/yarn

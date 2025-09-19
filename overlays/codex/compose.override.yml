@@ -23,8 +23,9 @@ services:
       - JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=tinyproxy -Dhttp.proxyPort=8888 -Dhttps.proxyHost=tinyproxy -Dhttps.proxyPort=8888 -Djava.net.useSystemProxies=true
       - SBT_GLOBAL_BASE=/workspace/.devhome/.sbt
       - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
+      - TESTCONTAINERS_RYUK_DISABLED=true
     volumes:
-      - ../../ouroboros-ide:/workspace:rw
+      - ${WORKSPACE_DIR:-.}:/workspace:rw
       - ivy2-cache:/home/dev/.ivy2
       - coursier-cache:/home/dev/.cache/coursier
       - devkit-auth:/home/dev/.codex

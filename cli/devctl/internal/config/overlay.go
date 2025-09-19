@@ -26,8 +26,10 @@ type Defaults struct {
 }
 
 type OverlayConfig struct {
-	Hooks    Hooks    `yaml:"hooks"`
-	Defaults Defaults `yaml:"defaults"`
+	Workspace string            `yaml:"workspace"`
+	Env       map[string]string `yaml:"env"`
+	Hooks     Hooks             `yaml:"hooks"`
+	Defaults  Defaults          `yaml:"defaults"`
 	// Default service name for this overlay (e.g., dev-agent, frontend)
 	Service string `yaml:"service"`
 }
