@@ -169,7 +169,7 @@ func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
 		if !filepath.IsAbs(ws) {
 			resolved = filepath.Clean(filepath.Join(base, ws))
 		}
-		if cur, ok := os.LookupEnv("WORKSPACE_DIR"); !ok || strings.TrimSpace(cur) == "" {
+		if shouldSetEnv("WORKSPACE_DIR", cfg.Workspace) {
 			_ = os.Setenv("WORKSPACE_DIR", resolved)
 		}
 	}
@@ -183,10 +183,10 @@ func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
 			resolved = filepath.Join(base, path)
 		}
 		for k, v := range readEnvFile(resolved) {
-			if _, ok := os.LookupEnv(k); ok {
+			if !shouldSetEnv(k, v) {
 				continue
 			}
-			_ = os.Setenv(k, v)
+			_ = os.Setenv(k, expandValue(v))
 		}
 	}
 	for key, val := range cfg.Env {
@@ -194,10 +194,10 @@ func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
 		if k == "" {
 			continue
 		}
-		if _, ok := os.LookupEnv(k); ok {
+		if !shouldSetEnv(k, val) {
 			continue
 		}
-		_ = os.Setenv(k, val)
+		_ = os.Setenv(k, expandValue(val))
 	}
 }
 
@@ -255,6 +255,25 @@ func expandHome(path string) string {
 		}
 	}
 	return path
+}
+
+func shouldSetEnv(key, value string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	if _, exists := os.LookupEnv(key); !exists {
+		return true
+	}
+	needle1 := "$" + key
+	needle2 := "${" + key + "}"
+	return strings.Contains(value, needle1) || strings.Contains(value, needle2)
+}
+
+func expandValue(raw string) string {
+	return os.Expand(raw, func(name string) string {
+		return os.Getenv(name)
+	})
 }
 
 // listServiceNamesAny returns running containers for a service across all compose projects (fallback path).

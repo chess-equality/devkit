@@ -3,8 +3,10 @@ package composecmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"devkit/cli/devctl/internal/cmdregistry"
+	"devkit/cli/devctl/internal/execx"
 	runner "devkit/cli/devctl/internal/runner"
 )
 
@@ -30,6 +32,68 @@ func handleUp(ctx *cmdregistry.Context) error {
 	}
 	runner.Compose(ctx.DryRun, ctx.Files, "up", "-d")
 	return nil
+}
+
+// CleanupSharedInfra tears down stale containers/networks shared across overlays so the next `up`
+// invocation (or layout apply) re-creates them with the correct compose project and IPAM settings.
+func CleanupSharedInfra(dry bool, projectName string, fileArgs []string) {
+	composeArgs := []string{"compose"}
+	if strings.TrimSpace(projectName) != "" {
+		composeArgs = append(composeArgs, "-p", projectName)
+	}
+	composeArgs = append(composeArgs, append([]string{}, fileArgs...)...)
+	composeArgs = append(composeArgs, "down", "--remove-orphans")
+	runner.HostBestEffort(dry, "docker", composeArgs...)
+
+	// Shared container names across overlays (tinyproxy/dns/envoy) need explicit cleanup.
+	staleContainers := []string{"devkit_tinyproxy", "devkit_dns", "devkit_envoy", "devkit_envoy_sni"}
+	filtered := make([]string, 0, len(staleContainers))
+	for _, name := range staleContainers {
+		if containerExists(name) {
+			filtered = append(filtered, name)
+		}
+	}
+	if len(filtered) > 0 {
+		rmArgs := append([]string{"rm", "-f"}, filtered...)
+		runner.HostBestEffort(dry, "docker", rmArgs...)
+	}
+
+	proj := strings.TrimSpace(projectName)
+	if proj == "" {
+		proj = "devkit"
+	}
+	nets := []string{fmt.Sprintf("%s_dev-internal", proj), fmt.Sprintf("%s_dev-egress", proj)}
+	for _, net := range nets {
+		if networkExists(net) {
+			runner.HostBestEffort(dry, "docker", "network", "rm", net)
+		}
+	}
+}
+
+func containerExists(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	ctx, cancel := execx.WithTimeout(5 * time.Second)
+	defer cancel()
+	out, res := execx.Capture(ctx, "docker", "ps", "-aq", "--filter", fmt.Sprintf("name=^%s$", name))
+	if res.Code != 0 {
+		return false
+	}
+	return strings.TrimSpace(out) != ""
+}
+
+func networkExists(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	ctx, cancel := execx.WithTimeout(5 * time.Second)
+	defer cancel()
+	out, res := execx.Capture(ctx, "docker", "network", "ls", "--filter", fmt.Sprintf("name=^%s$", name), "--format", "{{.Name}}")
+	if res.Code != 0 {
+		return false
+	}
+	return strings.TrimSpace(out) != ""
 }
 
 func handleDown(ctx *cmdregistry.Context) error {

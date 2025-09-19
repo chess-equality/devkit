@@ -13,5 +13,5 @@ ENV BROKER_LISTEN="unix:///tmp/postgres-broker.sock" \
     BROKER_UPSTREAM="/var/run/docker.sock" \
     BROKER_ALLOWED_IMAGE="postgres" \
     BROKER_ALLOWED_TAG="latest" \
-    BROKER_ALLOW_PULLS="false"
+    BROKER_ALLOW_PULLS="true"
 ENTRYPOINT ["/usr/local/bin/postgres-broker"]

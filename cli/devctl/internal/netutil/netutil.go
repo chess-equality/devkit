@@ -1,6 +1,7 @@
 package netutil
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"os"
@@ -12,7 +13,9 @@ type routeEntry struct {
 	Dst string `json:"dst"`
 }
 
-// PickInternalSubnet returns a non-overlapping /24 CIDR and a DNS IP (.3) for the internal network.
+const dnsHostOffset = 53
+
+// PickInternalSubnet returns a non-overlapping /24 CIDR and a DNS IP reserved away from the first few auto-assigned addresses.
 // Honors DEVKIT_INTERNAL_SUBNET and DEVKIT_DNS_IP if set. Falls back to defaults if detection fails.
 func PickInternalSubnet() (cidr string, dnsIP string) {
 	// Respect explicit overrides
@@ -57,26 +60,36 @@ func PickInternalSubnet() (cidr string, dnsIP string) {
 func dnsFromCIDR(cidr string) string {
 	ip, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
-		return "172.30.10.3"
+		return "172.30.10.53"
 	}
 	ip4 := ip.To4()
 	if ip4 == nil {
 		return ip.String()
 	}
-	base := make(net.IP, len(ip4))
-	copy(base, ip4)
-	// add 3 to network address
-	base[3] += 3
-	if !ipnet.Contains(base) {
-		// fallback to .3 in common case
-		parts := strings.Split(ipnet.IP.String(), ".")
-		if len(parts) == 4 {
-			parts[3] = "3"
-			return strings.Join(parts, ".")
-		}
-		return ipnet.IP.String()
+
+	base := binary.BigEndian.Uint32(ip4)
+	candidate := make(net.IP, len(ip4))
+	binary.BigEndian.PutUint32(candidate, base+dnsHostOffset)
+	if ipnet.Contains(candidate) && validHostOctet(candidate) {
+		return candidate.String()
 	}
-	return base.String()
+
+	fallback := make(net.IP, len(ip4))
+	binary.BigEndian.PutUint32(fallback, base+3)
+	if ipnet.Contains(fallback) && validHostOctet(fallback) {
+		return fallback.String()
+	}
+
+	return ipnet.IP.String()
+}
+
+func validHostOctet(ip net.IP) bool {
+	b := ip.To4()
+	if b == nil {
+		return true
+	}
+	octet := b[3]
+	return octet != 0 && octet != 255
 }
 
 func overlapsAny(candidate string, used []string) bool {

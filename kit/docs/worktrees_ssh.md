@@ -18,8 +18,9 @@ This guide shows how to run multiple isolated dev agents using Git worktrees and
      - Agent 2: `/workspaces/dev/agent-worktrees/agent2/ouroboros-ide`, `HOME=/workspaces/dev/agent-worktrees/agent2/.devhome-agent2`
 
 ## SSH (GitHub) notes
-- `ssh-setup` copies your host key and writes a proxy‑aware SSH config (port 443 via tinyproxy).
-- It ensures an index‑free HOME anchor `/workspace/.devhome` and runs `git config --global core.sshCommand 'ssh -F ~/.ssh/config'` so Git uses the proxy‑aware SSH config automatically.
+- `ssh-setup` copies your host key and writes a proxy-aware SSH config (port 443 via tinyproxy).
+- `devctl up` now performs the same seeding automatically for every `dev-agent` as soon as the container starts (assuming your host has keys in `~/.ssh`). Run `ssh-setup` only when you need to reseed an already-running agent or pass an alternate key path.
+- It ensures an index-free HOME anchor `/workspace/.devhome` and runs `git config --global core.sshCommand 'ssh -F ~/.ssh/config'` so Git uses the proxy-aware SSH config automatically.
 - Test: `scripts/devkit ssh-test <index>`
 
 ## Common workflows

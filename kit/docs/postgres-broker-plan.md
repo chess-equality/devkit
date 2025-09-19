@@ -44,6 +44,12 @@
 - Emit structured logs for every request and summarize them for audit trails.
 - Provide troubleshooting guidance (common error codes, broker log locations, steps to restart the rootless daemon).
 
+## Ryuk and Cleanup Semantics
+- Ryuk (Testcontainers' resource reaper) stays disabled because the broker only whitelists the Postgres image/tag and forbids the socket mount and `HostConfig` flags that Ryuk requires. Allowing it would hand tests a general-purpose Docker control plane, breaking the "Postgres only" contract.
+- The broker answers the prune endpoints with inert 200s so Testcontainers tolerates the missing reaper without letting suites delete arbitrary host resources. Re-enabling Ryuk would force us to expose those destructive verbs again.
+- Happy-path runs still clean up: every suite wraps `PostgreSQLContainer` in `Resource.make`, so `stop()` executes even when assertions fail.
+- The risk is limited to hard crashes (e.g., JVM exit, container kill) where finalizers never run. Operators should remove orphaned Postgres containers via the broker socket or the host daemon in those cases; a dedicated broker-owned sweeper can be added later if manual cleanup becomes noisy.
+
 ## Hands-on Smoke Test (Manual)
 - Run the scripted harness locally: `devkit/kit/tests/postgres-broker/run-smoke.sh` (respects `KEEP_STACK=1` for debugging).
 - The script installs `curl/jq` inside the client container, pre-pulls the Postgres image, runs the happy path, and asserts denial cases.

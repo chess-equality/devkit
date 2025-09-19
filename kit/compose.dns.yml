@@ -3,7 +3,7 @@
 services:
   dev-agent:
     dns:
-      - ${DEVKIT_DNS_IP:-172.30.10.3}
+      - ${DEVKIT_DNS_IP:-172.30.10.53}
     depends_on:
       - dns
 
@@ -15,7 +15,7 @@ services:
       - ./dns/dnsmasq.conf:/etc/dnsmasq.d/dnsmasq.conf:ro
     networks:
       dev-internal:
-        ipv4_address: ${DEVKIT_DNS_IP:-172.30.10.3}
+        ipv4_address: ${DEVKIT_DNS_IP:-172.30.10.53}
       dev-egress:
         aliases: [dns]
 
