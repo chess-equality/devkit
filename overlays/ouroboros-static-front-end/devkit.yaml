@@ -3,8 +3,21 @@ service: frontend
 env:
   NODE_ENV: development
   GATSBY_TELEMETRY_DISABLED: "1"
+  PATH: /workspace/.local/bin:${PATH}
 hooks:
   # Install dependencies so local gatsby binary is available via npm scripts
-  warm: npm ci
+  warm: |
+    set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
+    npm ci
   # Optional: produce a production build during maintenance
-  maintain: npm run build
+  maintain: |
+    set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
+    npm run build

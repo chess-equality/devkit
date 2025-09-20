@@ -12,6 +12,16 @@ Manual steps if not using the template:
   - Optional: `env:` to provide host defaults (e.g., `AWS_PROFILE`) that users can still override.
   - Optional: `env_files:` pointing at dotenv-style files (paths relative to the overlay directory) to prepopulate env vars without committing secrets.
   - Optional hooks: `warm`, `maintain` (run inside container via `devkit warm|maintain`).
+    - Best practice: drop in the python shim so tools that still call `python` work without edits:
+      ````
+      warm: |
+        set -euo pipefail
+        mkdir -p /workspace/.local/bin
+        if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+          ln -sf "$(command -v python3)" /workspace/.local/bin/python
+        fi
+        # your existing warm steps (npm install, sbt update, ...)
+      ````
 
 - overlays/<name>/compose.override.yml
   - Define your overlay service (e.g., `frontend`) and join it to the internal network.

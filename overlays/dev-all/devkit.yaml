@@ -12,6 +12,10 @@ hooks:
   # Install Go toolchain if missing so tests can run without manual setup
   warm: |
     set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
     if command -v go >/dev/null 2>&1; then
       exit 0
     fi

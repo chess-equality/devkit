@@ -232,6 +232,7 @@ Recent improvements:
 - Wrapper scripts now rely on POSIX-compatible path resolution, eliminating the GNU `readlink -f` dependency on macOS and other BSD systems.
 - Overlay configs populate `WORKSPACE_DIR`, honor optional `env_files`, and export defaults automatically, removing most hard-coded relative paths from compose overrides.
 - Overlay search paths behave like `$PATH`: set `DEVKIT_OVERLAYS_DIR` or host-level `overlay_paths` to layer multiple overlay repositories without editing this checkout.
+- Warm hooks now create a `python` shim backed by `python3`, so legacy tools that still call `python` keep working without patching every repo.
 - Wrapper entrypoints auto-build the `devctl` binary with `make`, or download a prebuilt binary when `DEVKIT_CLI_DOWNLOAD_URL` (or the host config `cli.download_url`) is set, so newcomers can launch the kit without a local Go toolchain.
 
 Next focus areas:

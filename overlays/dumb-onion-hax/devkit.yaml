@@ -1,5 +1,18 @@
 workspace: ../../dumb-onion-hax
-env: {}
+env:
+  PATH: /workspace/.local/bin:${PATH}
 hooks:
-  warm: sbt -v update
-  maintain: sbt compile
+  warm: |
+    set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
+    sbt -v update
+  maintain: |
+    set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
+    sbt compile

@@ -1,9 +1,14 @@
 workspace: ../../ouroboros-ide
 env:
   AWS_PROFILE: codex
+  PATH: /workspace/.local/bin:${PATH}
 hooks:
   warm: |
     set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
     host=$(hostname)
     base=/workspace/.devhomes
     target="${base}/${host}"
@@ -20,6 +25,10 @@ hooks:
     sbt -v update
   maintain: |
     set -euo pipefail
+    mkdir -p /workspace/.local/bin
+    if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
+      ln -sf "$(command -v python3)" /workspace/.local/bin/python
+    fi
     host=$(hostname)
     base=/workspace/.devhomes
     target="${base}/${host}"

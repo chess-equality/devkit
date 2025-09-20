@@ -71,6 +71,7 @@ Dev Kit — Base Kit Details
 - `env_files`: list of dotenv-style files (relative to the overlay directory) whose contents are exported unless the keys already exist in the host environment.
 - `service`: default compose service for CLI commands (`dev-agent` fallback).
 - `hooks.warm` / `hooks.maintain`: optional commands executed inside the container (`devkit warm|maintain`).
+  - Tip: the standard warm hook now installs a `python` shim backed by `python3`; reuse the pattern in new overlays so legacy scripts keep working.
 - `defaults.*`: overlay-specific defaults for agent counts and worktree automation (see `overlays/dev-all/devkit.yaml`).
 
 ## Host configuration
