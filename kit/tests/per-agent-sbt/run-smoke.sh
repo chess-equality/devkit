@@ -19,13 +19,8 @@ fi
 
 PROJECT="per-agent-sbt-$(date +%s%N | tail -c 6)"
 OVERRIDE_FILE="$(mktemp)"
-cat <<EOT >"$OVERRIDE_FILE"
-services:
-  tinyproxy:
-    container_name: ${PROJECT}_tinyproxy
-  dns:
-    container_name: ${PROJECT}_dns
-EOT
+printf 'services:\n  tinyproxy:\n    container_name: %s_tinyproxy\n  dns:\n    container_name: %s_dns\n' \
+  "$PROJECT" "$PROJECT" >"$OVERRIDE_FILE"
 
 cleanup() {
   set +e
