@@ -24,6 +24,7 @@
 
 ### 2. Agent Wiring
 - Codex and dev-all overlays mount the shared `broker-run` volume into each `dev-agent` container and export `DOCKER_HOST=unix:///broker-run/postgres-broker.sock` so existing tooling (Testcontainers, docker CLI) talks to the broker transparently.
+- Those overlays also export `TESTCONTAINERS_RYUK_DISABLED=true` so Testcontainers skips Ryuk by default; Ryuk is blocked by the broker and leaving it enabled causes 403s when suites first touch Docker.
 - Overlays may set `BROKER_ATTACH_NETWORKS` (for dev-all we default to `devkit-devall_dev-internal`) so the broker automatically connects any approved Postgres container to the internal network that the requesting agent uses. This keeps Testcontainers reachable even when the host bridge (`172.17.0.1`) is blocked in hardened profiles.
 - The broker service only connects to the internal Docker socket and joins the `dev-internal` network; it has no path to `dev-egress`.
 
@@ -46,6 +47,7 @@
 
 ## Ryuk and Cleanup Semantics
 - Ryuk (Testcontainers' resource reaper) stays disabled because the broker only whitelists the Postgres image/tag and forbids the socket mount and `HostConfig` flags that Ryuk requires. Allowing it would hand tests a general-purpose Docker control plane, breaking the "Postgres only" contract.
+- Developers wiring new overlays must either set `TESTCONTAINERS_RYUK_DISABLED=true` or ensure suites pass the same flag so the broker never sees the Ryuk image request.
 - The broker answers the prune endpoints with inert 200s so Testcontainers tolerates the missing reaper without letting suites delete arbitrary host resources. Re-enabling Ryuk would force us to expose those destructive verbs again.
 - Happy-path runs still clean up: every suite wraps `PostgreSQLContainer` in `Resource.make`, so `stop()` executes even when assertions fail.
 - The risk is limited to hard crashes (e.g., JVM exit, container kill) where finalizers never run. Operators should remove orphaned Postgres containers via the broker socket or the host daemon in those cases; a dedicated broker-owned sweeper can be added later if manual cleanup becomes noisy.

@@ -11,6 +11,7 @@ services:
       - JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=tinyproxy -Dhttp.proxyPort=8888 -Dhttps.proxyHost=tinyproxy -Dhttps.proxyPort=8888 -Djava.net.useSystemProxies=true
       - SBT_GLOBAL_BASE=/workspaces/dev/.devhome/.sbt
       - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
+      - TESTCONTAINERS_RYUK_DISABLED=true
     working_dir: /workspaces/dev
     volumes:
       - ../../:/workspaces/dev:rw
