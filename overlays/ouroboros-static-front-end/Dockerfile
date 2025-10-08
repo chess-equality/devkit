@@ -3,7 +3,7 @@ FROM node:20-bullseye
 ARG INSTALL_CODEX=true
 ARG INSTALL_CLAUDE=true
 ARG CLAUDE_INSTALL_TIMEOUT=1200
-ARG CODEX_VERSION="rust-v0.38.0"
+ARG CODEX_VERSION="rust-v0.44.0"
 ARG CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
 ARG CODEX_SHA256=""
 
@@ -97,18 +97,24 @@ RUN if [ "$INSTALL_CLAUDE" = "true" ]; then \
   && echo 'alias claude=claudew' >> /etc/bash.bashrc; \
   fi
 
-# Strict entrypoint: ensure credentials exist (no best-effort), set HOME, then exec command
+# Strict entrypoint: ensure shared Codex volume is seeded, set HOME, then exec command
 RUN printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
   'DEV_HOME="${HOME:-/workspace/.devhome}"' \
   'if [[ -z "$DEV_HOME" || "$DEV_HOME" == "/" || "$DEV_HOME" == "/home/node" ]]; then DEV_HOME="/workspace/.devhome"; fi' \
-  'mkdir -p "$DEV_HOME/.codex" "$DEV_HOME/.cache" "$DEV_HOME/.config" "$DEV_HOME/.local"' \
-  'if [[ ! -r "$DEV_HOME/.codex/auth.json" ]]; then' \
-  '  if [[ -r "/var/host-codex/auth.json" ]]; then cp -f "/var/host-codex/auth.json" "$DEV_HOME/.codex/auth.json"; elif [[ -r "/var/auth.json" ]]; then cp -f "/var/auth.json" "$DEV_HOME/.codex/auth.json"; else' \
-  '    echo "ERROR: Codex credentials not found. Mount HOST_CODEX_DIR (~/.codex) or HOST_CODEX_FILE and retry." >&2; exit 2; fi' \
+  'mkdir -p "$DEV_HOME" /var/host-codex' \
+  'if [[ ! -r /var/host-codex/auth.json ]]; then' \
+  '  if [[ -r /var/seed-codex/auth.json ]]; then cp -f /var/seed-codex/auth.json /var/host-codex/auth.json; elif [[ -r "/var/auth.json" ]]; then cp -f "/var/auth.json" /var/host-codex/auth.json; fi' \
   'fi' \
-  'chmod 600 "$DEV_HOME/.codex/auth.json" || true' \
+  'mkdir -p /var/host-codex/rollouts' \
+  'if [[ ! -r /var/host-codex/auth.json ]]; then' \
+  '  echo "ERROR: Codex credentials not found. Mount HOST_CODEX_DIR (~/.codex) or HOST_CODEX_FILE and retry." >&2' \
+  '  exit 2' \
+  'fi' \
+  'chmod 600 /var/host-codex/auth.json || true' \
+  'ln -sfn /var/host-codex "$DEV_HOME/.codex"' \
+  'mkdir -p "$DEV_HOME/.cache" "$DEV_HOME/.config" "$DEV_HOME/.local"' \
   'export HOME="$DEV_HOME" CODEX_ROLLOUT_DIR="$DEV_HOME/.codex/rollouts" XDG_CACHE_HOME="$DEV_HOME/.cache" XDG_CONFIG_HOME="$DEV_HOME/.config"' \
   'exec "$@"' \
   > /usr/local/bin/frontend-entrypoint.sh \

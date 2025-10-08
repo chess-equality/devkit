@@ -41,11 +41,13 @@ services:
       # Cache directories for faster installs
       - npm-cache:/home/node/.npm
       - yarn-cache:/home/node/.cache/yarn
-      # Required: mount Codex credentials from host (no best-effort)
-      - ${HOST_CODEX_DIR:-${HOME}/.codex}:/var/host-codex:ro
+      # Codex credentials: shared volume plus host seed files for fallback
+      - devkit-auth:/var/host-codex
+      - ${HOST_CODEX_DIR:-${HOME}/.codex}:/var/seed-codex:ro
       - ${HOST_CODEX_FILE:-${HOME}/.codex/auth.json}:/var/auth.json:ro
       - tmpfs:/tmp
 
 volumes:
   npm-cache:
   yarn-cache:
+  devkit-auth:
