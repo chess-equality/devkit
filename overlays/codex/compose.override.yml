@@ -9,7 +9,7 @@ services:
         INSTALL_CODEX: "${INSTALL_CODEX:-true}"
         INSTALL_CLAUDE: "${INSTALL_CLAUDE:-true}"
         JDK_VERSION: "${JDK_VERSION:-17}"
-        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.38.0}"
+        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.47.0}"
         CODEX_ASSET: "${CODEX_ASSET:-codex-x86_64-unknown-linux-musl.tar.gz}"
         CODEX_SHA256: "${CODEX_SHA256:-}"
         CLAUDE_VERSION: "${CLAUDE_VERSION:-latest}"
@@ -47,6 +47,7 @@ services:
     environment:
       - BROKER_LISTEN=unix:///broker-run/postgres-broker.sock
       - BROKER_UPSTREAM=/var/run/docker.sock
+      - BROKER_ALLOWED_IMAGES=${BROKER_ALLOWED_IMAGES:-postgres:latest,minio/minio:latest}
       - BROKER_ALLOWED_IMAGE=${BROKER_ALLOWED_IMAGE:-postgres}
       - BROKER_ALLOWED_TAG=${BROKER_ALLOWED_TAG:-latest}
       - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-true}

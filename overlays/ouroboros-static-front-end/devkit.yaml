@@ -1,4 +1,4 @@
-workspace: ../../ouroboros-static-front-end
+workspace: ../../../ouroboros-static-front-end
 service: frontend
 env:
   NODE_ENV: development

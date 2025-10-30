@@ -20,6 +20,7 @@
 - `POST /containers/prune`, `/networks/prune`, `/volumes/prune`, and `/images/prune` are answered with stubbed 200 responses so Testcontainers' fallback cleanup hooks do not error, while still avoiding destructive pruning on the host daemon.
 - The compose overlay builds the image locally (`devkit/overlays/codex/compose.override.yml`) and mounts both the shared broker socket volume and `/var/run/docker.sock` from the host.
 - The runtime container uses a distroless base image, runs with a read-only root filesystem, drops all Linux capabilities, enforces `no-new-privileges`, and allows image pulls only for the whitelisted Postgres tag so first-run suites can fetch the required image.
+- Multiple blessed images can be provided via `BROKER_ALLOWED_IMAGES` (comma-separated references such as `postgres:latest,minio/minio:latest`). The legacy `BROKER_ALLOWED_IMAGE` / `BROKER_ALLOWED_TAG` settings are still honored and folded into the same allow-list at startup. Each blessed image also carries an explicit map of container ports that the broker will accept; Postgres stays limited to `5432/tcp`, while MinIO is allowed to expose its paired `9000/tcp` (S3 API) and `9001/tcp` (health/console) endpoints so container suites can exercise object storage without broadening the attack surface.
 - On start the broker sets its unix socket to `0666`, then serves it from the dedicated `broker-run` volume so non-root dev agents can reach the proxy without opening up broader filesystem access.
 
 ### 2. Agent Wiring
@@ -61,3 +62,4 @@
 ## Next Steps
 - Harden the policy checks based on real Testcontainers traffic and capture container lifecycle coverage.
 - Integrate the harness into CI and publish troubleshooting tips alongside the script outputs.
+- Support a small allow-list of blessed images (e.g., Postgres plus MinIO) so suites that depend on multiple sanctioned services can share one broker instance without opening access to arbitrary images. The broker's per-image port policy should stay narrow and documented (e.g., Postgres `5432/tcp`, MinIO `9000/9001`), with any new service documented alongside the reason for its port budget.

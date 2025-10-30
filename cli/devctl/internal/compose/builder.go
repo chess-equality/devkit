@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"devkit/cli/devctl/internal/config"
 )
 
 type Paths struct {
@@ -38,6 +40,18 @@ func Files(p Paths, project, profile string) ([]string, error) {
 	base := filepath.Join(p.Kit, "compose.yml")
 	args = append(args, "-f", base)
 
+	if project != "" {
+		cfg, dir, err := config.ReadAll(p.OverlayPaths, project)
+		if err != nil {
+			return nil, err
+		}
+		if ws := config.ResolveWorkspace(cfg, dir, p.Root); ws != "" {
+			if err := ensureWorkspaceWritable(ws); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	eff := strings.TrimSpace(profile)
 	if eff == "" {
 		eff = "dns" // default, matching current bash script
@@ -67,6 +81,29 @@ func Files(p Paths, project, profile string) ([]string, error) {
 		}
 	}
 	return args, nil
+}
+
+func ensureWorkspaceWritable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("workspace directory %s does not exist", path)
+		}
+		return fmt.Errorf("workspace directory %s not accessible: %w", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("workspace directory %s is not a directory", path)
+	}
+	f, err := os.CreateTemp(path, ".devkit-workspace-check-*")
+	if err != nil {
+		return fmt.Errorf("workspace directory %s not writable: %w", path, err)
+	}
+	name := f.Name()
+	_ = f.Close()
+	if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("workspace directory %s cleanup failed: %w", path, err)
+	}
+	return nil
 }
 
 func fileExists(path string) bool {

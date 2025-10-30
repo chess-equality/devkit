@@ -36,6 +36,7 @@ services:
     environment:
       - BROKER_LISTEN=unix:///broker-run/postgres-broker.sock
       - BROKER_UPSTREAM=/var/run/docker.sock
+      - BROKER_ALLOWED_IMAGES=${BROKER_ALLOWED_IMAGES:-postgres:latest,minio/minio:latest}
       - BROKER_ALLOWED_IMAGE=${BROKER_ALLOWED_IMAGE:-postgres}
       - BROKER_ALLOWED_TAG=${BROKER_ALLOWED_TAG:-latest}
       - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-true}

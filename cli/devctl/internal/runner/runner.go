@@ -54,7 +54,7 @@ func ComposeInput(dry bool, fileArgs []string, input []byte, args ...string) {
 }
 
 // ComposeWithProject adds an explicit project name (-p) before running docker compose.
-func ComposeWithProject(dry bool, projectName string, fileArgs []string, args ...string) {
+func ComposeWithProject(dry bool, projectName string, fileArgs []string, args ...string) error {
 	ctx, cancel := execx.WithTimeout(10 * time.Minute)
 	defer cancel()
 	all := []string{"compose"}
@@ -64,12 +64,16 @@ func ComposeWithProject(dry bool, projectName string, fileArgs []string, args ..
 	all = append(all, append(fileArgs, args...)...)
 	if dry {
 		fmt.Fprintln(os.Stderr, "+ docker "+strings.Join(all, " "))
-		return
+		return nil
 	}
 	res := execx.RunCtx(ctx, "docker", all...)
 	if res.Code != 0 {
-		os.Exit(res.Code)
+		if res.Err != nil {
+			return res.Err
+		}
+		return fmt.Errorf("docker compose exited with code %d", res.Code)
 	}
+	return nil
 }
 
 // Host executes a host binary with a default 10 minute timeout.

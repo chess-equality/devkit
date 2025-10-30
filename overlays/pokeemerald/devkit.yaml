@@ -1,4 +1,4 @@
-workspace: ../../pokeemerald-expansion
+workspace: ../../../pokeemerald-expansion
 env:
   PATH: /workspace/.local/bin:${PATH}
 hooks:

@@ -30,8 +30,7 @@ var (
 type brokerConfig struct {
 	ListenAddr      string
 	UpstreamAddr    string
-	AllowedImage    string
-	AllowedTag      string
+	AllowedImages   []string
 	AllowedEnv      []string
 	AllowImagePulls bool
 	LogLevel        string
@@ -92,16 +91,244 @@ type requestContext struct {
 }
 
 type policy struct {
-	allowedImage string
-	allowedTag   string
-	allowPull    bool
+	allowPull bool
+	refs      []imageReference
+}
+
+func newPolicy(images []string, allowPull bool) (*policy, error) {
+	refs := make([]imageReference, 0, len(images))
+	seen := make(map[string]struct{}, len(images))
+	for _, raw := range images {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		ref, err := newImageReference(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+		seen[key] = struct{}{}
+	}
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("no allowed images configured")
+	}
+	return &policy{allowPull: allowPull, refs: refs}, nil
 }
 
 func (p *policy) allowedImageRef() string {
-	if p.allowedTag == "" {
-		return p.allowedImage
+	if len(p.refs) == 0 {
+		return ""
 	}
-	return fmt.Sprintf("%s:%s", p.allowedImage, p.allowedTag)
+	return p.refs[0].raw
+}
+
+func (p *policy) allowedImages() []string {
+	values := make([]string, len(p.refs))
+	for i, ref := range p.refs {
+		values[i] = ref.raw
+	}
+	return values
+}
+
+func (p *policy) matchesImage(candidate string) bool {
+	for _, ref := range p.refs {
+		if ref.matchesFull(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *policy) matchesNameAndTag(name, tag string) bool {
+	for _, ref := range p.refs {
+		if ref.matchesNameAndTag(name, tag) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *policy) allowedPortsFor(image string) []string {
+	for _, ref := range p.refs {
+		if ref.matchesFull(image) {
+			return append([]string(nil), ref.allowedPorts...)
+		}
+	}
+	name, tag := splitImageRef(image)
+	for _, ref := range p.refs {
+		if ref.matchesNameAndTag(name, tag) {
+			return append([]string(nil), ref.allowedPorts...)
+		}
+	}
+	return nil
+}
+
+type imageReference struct {
+	raw          string
+	tag          string
+	nameAliases  map[string]struct{}
+	fullAliases  map[string]struct{}
+	allowedPorts []string
+}
+
+func newImageReference(raw string) (imageReference, error) {
+	name, tag := splitImageRef(raw)
+	if name == "" {
+		return imageReference{}, fmt.Errorf("invalid image reference: %s", raw)
+	}
+	nameAliases := make(map[string]struct{})
+	for _, alias := range generateNameAliases(name) {
+		nameAliases[alias] = struct{}{}
+	}
+	fullAliases := make(map[string]struct{})
+	if tag == "" {
+		for alias := range nameAliases {
+			fullAliases[alias] = struct{}{}
+		}
+	} else {
+		for alias := range nameAliases {
+			fullAliases[alias+":"+tag] = struct{}{}
+		}
+	}
+	allowedPorts := defaultAllowedPorts(name)
+	return imageReference{
+		raw:          raw,
+		tag:          tag,
+		nameAliases:  nameAliases,
+		fullAliases:  fullAliases,
+		allowedPorts: allowedPorts,
+	}, nil
+}
+
+func defaultAllowedPorts(name string) []string {
+	family := normalizeImageFamily(name)
+	switch family {
+	case "minio/minio":
+		return []string{"9000/tcp", "9001/tcp"}
+	case "postgres":
+		fallthrough
+	default:
+		return []string{"5432/tcp"}
+	}
+}
+
+func normalizeImageFamily(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return trimmed
+	}
+	trimmed = strings.TrimPrefix(trimmed, "docker.io/")
+	if strings.HasPrefix(trimmed, "library/") {
+		trimmed = strings.TrimPrefix(trimmed, "library/")
+	}
+	return trimmed
+}
+
+func (ref imageReference) matchesFull(candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	if _, ok := ref.fullAliases[candidate]; ok {
+		return true
+	}
+	name, tag := splitImageRef(candidate)
+	return ref.matchesNameAndTag(name, tag)
+}
+
+func (ref imageReference) matchesNameAndTag(name, tag string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	aliases := generateNameAliases(name)
+	matched := false
+	for _, alias := range aliases {
+		if _, ok := ref.nameAliases[alias]; ok {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return false
+	}
+	if ref.tag == "" {
+		return strings.TrimSpace(tag) == ""
+	}
+	return strings.TrimSpace(tag) == ref.tag
+}
+
+func splitImageRef(raw string) (name, tag string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ""
+	}
+	idx := strings.LastIndex(trimmed, ":")
+	slash := strings.LastIndex(trimmed, "/")
+	if idx > slash {
+		return trimmed[:idx], trimmed[idx+1:]
+	}
+	return trimmed, ""
+}
+
+func generateNameAliases(name string) []string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+	aliases := map[string]struct{}{}
+	add := func(val string) {
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return
+		}
+		aliases[val] = struct{}{}
+	}
+
+	add(trimmed)
+
+	withoutDocker := strings.TrimPrefix(trimmed, "docker.io/")
+	if withoutDocker != trimmed {
+		add(withoutDocker)
+	}
+
+	parts := strings.Split(withoutDocker, "/")
+	if len(parts) == 2 && parts[0] == "library" {
+		add(parts[1])
+	}
+
+	if len(parts) == 1 {
+		add("library/" + parts[0])
+	}
+
+	if !strings.HasPrefix(trimmed, "docker.io/") {
+		add("docker.io/" + trimmed)
+	}
+	if len(parts) == 1 {
+		add("docker.io/library/" + parts[0])
+	}
+
+	if withoutDocker != trimmed {
+		// also add docker.io prefixed version of normalized name
+		if !strings.HasPrefix(withoutDocker, "docker.io/") {
+			add("docker.io/" + withoutDocker)
+		}
+		wdParts := strings.Split(withoutDocker, "/")
+		if len(wdParts) == 1 {
+			add("docker.io/library/" + wdParts[0])
+		}
+	}
+
+	result := make([]string, 0, len(aliases))
+	for val := range aliases {
+		result = append(result, val)
+	}
+	return result
 }
 
 type containerCreateRequest struct {
@@ -142,11 +369,21 @@ func loadConfig() brokerConfig {
 	cfg := brokerConfig{
 		ListenAddr:      getEnv("BROKER_LISTEN", "unix:///var/run/postgres-broker.sock"),
 		UpstreamAddr:    getEnv("BROKER_UPSTREAM", "unix:///var/run/docker.sock"),
-		AllowedImage:    getEnv("BROKER_ALLOWED_IMAGE", "postgres"),
-		AllowedTag:      os.Getenv("BROKER_ALLOWED_TAG"),
 		AllowImagePulls: getEnv("BROKER_ALLOW_PULLS", "false") == "true",
 		LogLevel:        getEnv("BROKER_LOG_LEVEL", "info"),
 	}
+
+	allowed := splitAndTrim(os.Getenv("BROKER_ALLOWED_IMAGES"))
+	defaultImage := strings.TrimSpace(getEnv("BROKER_ALLOWED_IMAGE", "postgres"))
+	defaultTag := strings.TrimSpace(os.Getenv("BROKER_ALLOWED_TAG"))
+	if defaultImage != "" {
+		if defaultTag != "" {
+			allowed = append(allowed, fmt.Sprintf("%s:%s", defaultImage, defaultTag))
+		}
+		allowed = append(allowed, defaultImage)
+	}
+	cfg.AllowedImages = uniqueStrings(allowed)
+
 	if env := os.Getenv("BROKER_ALLOWED_ENV"); env != "" {
 		cfg.AllowedEnv = strings.Split(env, ",")
 	}
@@ -161,6 +398,37 @@ func loadConfig() brokerConfig {
 		cfg.AttachNetworks = append(cfg.AttachNetworks, net)
 	}
 	return cfg
+}
+
+func splitAndTrim(input string) []string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	parts := strings.Split(input, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, val := range values {
+		key := strings.ToLower(val)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, val)
+	}
+	return result
 }
 
 func buildClient(upstream string) (*http.Client, *url.URL, error) {
@@ -214,10 +482,9 @@ func main() {
 		log.Fatalf("unable to prepare listen socket: %v", err)
 	}
 
-	policy := &policy{
-		allowedImage: cfg.AllowedImage,
-		allowedTag:   cfg.AllowedTag,
-		allowPull:    cfg.AllowImagePulls,
+	policy, err := newPolicy(cfg.AllowedImages, cfg.AllowImagePulls)
+	if err != nil {
+		log.Fatalf("invalid allowed images: %v", err)
 	}
 
 	client, targetURL, err := buildClient(cfg.UpstreamAddr)
@@ -232,6 +499,8 @@ func main() {
 		containers: newContainerRegistry(),
 		attachNets: cfg.AttachNetworks,
 	}
+
+	log.WithField("allowed_images", policy.allowedImages()).Info("policy initialised")
 
 	handler := http.HandlerFunc(rc.handle)
 
@@ -503,21 +772,21 @@ func (rc *requestContext) authorizeImageCreate(r *http.Request) error {
 	if !rc.policy.allowPull {
 		return errForbidden
 	}
-	ref := rc.policy.allowedImage
-	if tag := rc.policy.allowedTag; tag != "" {
-		ref = fmt.Sprintf("%s:%s", rc.policy.allowedImage, tag)
-	}
-	fromImage := r.URL.Query().Get("fromImage")
-	tag := r.URL.Query().Get("tag")
-
-	expectedImage := rc.policy.allowedImage
-	if fromImage != expectedImage {
+	fromImage := strings.TrimSpace(r.URL.Query().Get("fromImage"))
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	if !rc.policy.matchesNameAndTag(fromImage, tag) {
+		log.WithFields(log.Fields{
+			"fromImage": fromImage,
+			"tag":       tag,
+			"allowed":   strings.Join(rc.policy.allowedImages(), ","),
+		}).Warn("blocked image pull: image mismatch")
 		return errForbidden
 	}
-	if rc.policy.allowedTag != "" && tag != rc.policy.allowedTag {
-		return errForbidden
-	}
-	log.WithField("image", ref).Debug("allowing image pull")
+	log.WithFields(log.Fields{
+		"fromImage": fromImage,
+		"tag":       tag,
+		"allowed":   strings.Join(rc.policy.allowedImages(), ","),
+	}).Debug("allowing image pull")
 	return nil
 }
 
@@ -533,8 +802,11 @@ func (rc *requestContext) authorizeContainerCreate(r *http.Request) error {
 		return errForbidden
 	}
 
-	if payload.Image != rc.policy.allowedImageRef() {
-		log.WithFields(log.Fields{"image": payload.Image, "allowed": rc.policy.allowedImageRef()}).Warn("blocked container create: image mismatch")
+	if !rc.policy.matchesImage(payload.Image) {
+		log.WithFields(log.Fields{
+			"image":   payload.Image,
+			"allowed": strings.Join(rc.policy.allowedImages(), ","),
+		}).Warn("blocked container create: image mismatch")
 		return errForbidden
 	}
 	log.WithFields(log.Fields{
@@ -559,7 +831,7 @@ func (rc *requestContext) authorizeContainerCreate(r *http.Request) error {
 		return errForbidden
 	}
 
-	if err := validatePortBindings(payload.HostConfig.PortBindings); err != nil {
+	if err := validatePortBindings(payload.HostConfig.PortBindings, rc.policy.allowedPortsFor(payload.Image)); err != nil {
 		log.WithError(err).Warn("blocked container create: port bindings")
 		return err
 	}
@@ -573,26 +845,40 @@ func (rc *requestContext) authorizeContainerCreate(r *http.Request) error {
 	return nil
 }
 
-func validatePortBindings(bindings map[string][]portBinding) error {
-	if bindings == nil {
+func validatePortBindings(bindings map[string][]portBinding, allowedPorts []string) error {
+	if bindings == nil || len(bindings) == 0 {
 		return nil
 	}
-	if len(bindings) == 0 {
-		return nil
+	if len(allowedPorts) == 0 {
+		allowedPorts = []string{"5432/tcp"}
 	}
-	if len(bindings) > 1 {
+	allowed := make(map[string]struct{}, len(allowedPorts))
+	for _, port := range allowedPorts {
+		trimmed := strings.TrimSpace(port)
+		if trimmed == "" {
+			continue
+		}
+		allowed[trimmed] = struct{}{}
+	}
+	if len(bindings) > len(allowed) {
 		return fmt.Errorf("%w: multiple bindings", errForbidden)
 	}
 	for key, values := range bindings {
-		if key != "5432/tcp" {
+		if _, ok := allowed[key]; !ok {
 			return fmt.Errorf("%w: unexpected container port %s", errForbidden, key)
+		}
+		if len(values) > 1 {
+			return fmt.Errorf("%w: multiple bindings", errForbidden)
 		}
 		for _, v := range values {
 			if v.HostIP != "" && v.HostIP != "0.0.0.0" && v.HostIP != "::" {
 				return fmt.Errorf("%w: disallowed host ip %s", errForbidden, v.HostIP)
 			}
-			if v.HostPort != "" && v.HostPort != "5432" {
-				// Allow Docker to choose random host port when empty; forbid fixed non-Postgres ports.
+			containerPort := key
+			if idx := strings.Index(containerPort, "/"); idx > -1 {
+				containerPort = containerPort[:idx]
+			}
+			if v.HostPort != "" && v.HostPort != containerPort {
 				return fmt.Errorf("%w: disallowed host port %s", errForbidden, v.HostPort)
 			}
 		}
@@ -634,9 +920,7 @@ func (rc *requestContext) authorizeImageInspect(cleanPath string) error {
 		log.WithField("image", identifier).Debug("allowing digest inspect")
 		return nil
 	}
-	allowedRef := rc.policy.allowedImageRef()
-	allowedImage := rc.policy.allowedImage
-	if matchesAllowedImage(identifier, allowedImage, allowedRef) {
+	if rc.policy.matchesImage(identifier) {
 		log.WithField("image", identifier).Debug("allowing image inspect")
 		return nil
 	}
@@ -653,23 +937,6 @@ func resourceIDFromPath(cleanPath string) string {
 		return ""
 	}
 	return parts[2]
-}
-
-func matchesAllowedImage(candidate, allowedImage, allowedRef string) bool {
-	allowed := map[string]struct{}{}
-	addImageVariants(allowed, allowedImage)
-	addImageVariants(allowed, allowedRef)
-	_, ok := allowed[candidate]
-	return ok
-}
-
-func addImageVariants(set map[string]struct{}, val string) {
-	if val == "" {
-		return
-	}
-	for _, variant := range []string{val, "library/" + val, "docker.io/" + val, "docker.io/library/" + val} {
-		set[variant] = struct{}{}
-	}
 }
 
 func stripVersionPrefix(p string) string {

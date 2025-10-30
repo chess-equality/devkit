@@ -159,9 +159,60 @@ func listServiceNamesProject(project, service string) []string {
 func listAgentNames(files []string) []string { return listServiceNames(files, "dev-agent") }
 
 func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
+	applyOverlayEnvInternal(cfg, overlayDir, root, false, nil)
+}
+
+func pushOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string, force bool) func() {
+	changed := map[string]*string{}
+	applyOverlayEnvInternal(cfg, overlayDir, root, force, changed)
+	if len(changed) == 0 {
+		return nil
+	}
+	return func() {
+		keys := make([]string, 0, len(changed))
+		for k := range changed {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			prev := changed[key]
+			if prev == nil {
+				_ = os.Unsetenv(key)
+				continue
+			}
+			_ = os.Setenv(key, *prev)
+		}
+	}
+}
+
+func applyOverlayEnvInternal(cfg config.OverlayConfig, overlayDir string, root string, force bool, changed map[string]*string) {
 	base := strings.TrimSpace(overlayDir)
 	if base == "" {
 		base = root
+	}
+	setEnv := func(key string, raw string, resolved string, expand bool) {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			return
+		}
+		if !force && !shouldSetEnv(k, raw) {
+			return
+		}
+		if changed != nil {
+			if _, recorded := changed[k]; !recorded {
+				if cur, ok := os.LookupEnv(k); ok {
+					val := cur
+					changed[k] = &val
+				} else {
+					changed[k] = nil
+				}
+			}
+		}
+		val := resolved
+		if expand {
+			val = expandValue(resolved)
+		}
+		_ = os.Setenv(k, val)
 	}
 	ws := strings.TrimSpace(cfg.Workspace)
 	if ws != "" {
@@ -169,9 +220,7 @@ func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
 		if !filepath.IsAbs(ws) {
 			resolved = filepath.Clean(filepath.Join(base, ws))
 		}
-		if shouldSetEnv("WORKSPACE_DIR", cfg.Workspace) {
-			_ = os.Setenv("WORKSPACE_DIR", resolved)
-		}
+		setEnv("WORKSPACE_DIR", cfg.Workspace, resolved, false)
 	}
 	for _, file := range cfg.EnvFiles {
 		path := strings.TrimSpace(file)
@@ -183,21 +232,11 @@ func applyOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string) {
 			resolved = filepath.Join(base, path)
 		}
 		for k, v := range readEnvFile(resolved) {
-			if !shouldSetEnv(k, v) {
-				continue
-			}
-			_ = os.Setenv(k, expandValue(v))
+			setEnv(k, v, v, true)
 		}
 	}
 	for key, val := range cfg.Env {
-		k := strings.TrimSpace(key)
-		if k == "" {
-			continue
-		}
-		if !shouldSetEnv(k, val) {
-			continue
-		}
-		_ = os.Setenv(k, expandValue(val))
+		setEnv(key, val, val, true)
 	}
 }
 
@@ -262,7 +301,8 @@ func shouldSetEnv(key, value string) bool {
 	if key == "" {
 		return false
 	}
-	if _, exists := os.LookupEnv(key); !exists {
+	cur, exists := os.LookupEnv(key)
+	if !exists || cur == "" {
 		return true
 	}
 	needle1 := "$" + key
@@ -296,6 +336,78 @@ func listServiceNamesAny(service string) []string {
 	return names
 }
 
+func resolveServiceContainer(files []string, service, idx string, timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		names := listServiceNames(files, service)
+		if len(names) == 0 {
+			names = listServiceNamesAny(service)
+		}
+		name := pickByIndex(names, idx)
+		if strings.TrimSpace(name) != "" {
+			return name
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func guessServiceContainerName(files []string, service, idx string) string {
+	project := guessComposeProjectName(files)
+	if strings.TrimSpace(service) == "" {
+		service = "dev-agent"
+	}
+	n := 1
+	if v, err := strconv.Atoi(idx); err == nil && v >= 1 {
+		n = v
+	}
+	return fmt.Sprintf("%s-%s-%d", project, service, n)
+}
+
+func guessComposeProjectName(files []string) string {
+	for i := 0; i < len(files)-1; i++ {
+		if files[i] != "-f" {
+			continue
+		}
+		path := filepath.ToSlash(files[i+1])
+		const marker = "/overlays/"
+		idx := strings.Index(path, marker)
+		if idx < 0 {
+			continue
+		}
+		remainder := path[idx+len(marker):]
+		parts := strings.SplitN(remainder, "/", 2)
+		if len(parts) == 0 {
+			continue
+		}
+		overlay := strings.TrimSpace(parts[0])
+		if overlay == "" {
+			continue
+		}
+		name := sanitizeOverlayName(overlay)
+		if name == "" {
+			name = overlay
+		}
+		return "devkit-" + name
+	}
+	return "devkit"
+}
+
+func sanitizeOverlayName(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range strings.ToLower(raw) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func pickByIndex(names []string, idx string) string {
 	if len(names) == 0 {
 		return ""
@@ -322,6 +434,10 @@ func execAgentIdx(dry bool, files []string, idx string, script string) {
 		if dry {
 			// In dry-run, print a compose exec form for visibility and continue
 			runner.Compose(dry, files, "exec", "--index", idx, "dev-agent", "bash", "-lc", script)
+			placeholder := guessServiceContainerName(files, "dev-agent", idx)
+			if strings.TrimSpace(placeholder) != "" {
+				runner.Host(dry, "docker", "exec", "-t", placeholder, "bash", "-lc", script)
+			}
 			return
 		}
 		die("dev-agent not running")
@@ -383,16 +499,25 @@ func execServiceIdx(dry bool, files []string, service, idx string, script string
 	if strings.TrimSpace(service) == "" {
 		service = "dev-agent"
 	}
-	names := listServiceNames(files, service)
-	if len(names) == 0 {
-		names = listServiceNamesAny(service)
-	}
-	name := pickByIndex(names, idx)
-	if strings.TrimSpace(name) == "" {
-		if dry {
+	if dry {
+		names := listServiceNames(files, service)
+		if len(names) == 0 {
+			names = listServiceNamesAny(service)
+		}
+		name := pickByIndex(names, idx)
+		if strings.TrimSpace(name) == "" {
 			runner.Compose(dry, files, "exec", "--index", idx, service, "bash", "-lc", script)
+			placeholder := guessServiceContainerName(files, service, idx)
+			if strings.TrimSpace(placeholder) != "" {
+				runner.Host(dry, "docker", "exec", "-t", placeholder, "bash", "-lc", script)
+			}
 			return
 		}
+		runner.Host(dry, "docker", "exec", "-t", name, "bash", "-lc", script)
+		return
+	}
+	name := resolveServiceContainer(files, service, idx, 60*time.Second)
+	if strings.TrimSpace(name) == "" {
 		die(service + " not running")
 	}
 	runner.Host(dry, "docker", "exec", "-t", name, "bash", "-lc", script)
@@ -403,16 +528,12 @@ func execServiceIdxInput(dry bool, files []string, service, idx string, input []
 	if strings.TrimSpace(service) == "" {
 		service = "dev-agent"
 	}
-	names := listServiceNames(files, service)
-	if len(names) == 0 {
-		names = listServiceNamesAny(service)
+	if dry {
+		runner.Compose(dry, files, "exec", "--index", idx, service, "bash", "-lc", script)
+		return
 	}
-	name := pickByIndex(names, idx)
+	name := resolveServiceContainer(files, service, idx, 60*time.Second)
 	if strings.TrimSpace(name) == "" {
-		if dry {
-			runner.Compose(dry, files, "exec", "--index", idx, service, "bash", "-lc", script)
-			return
-		}
 		die(service + " not running")
 	}
 	ctx, cancel := execx.WithTimeout(10 * time.Minute)
@@ -425,24 +546,16 @@ func execServiceIdxArgs(dry bool, files []string, service, idx string, argv ...s
 	if strings.TrimSpace(service) == "" {
 		service = "dev-agent"
 	}
-	names := listServiceNames(files, service)
-	if len(names) == 0 {
-		names = listServiceNamesAny(service)
+	if dry {
+		runner.Compose(dry, files, append([]string{"exec", "-T", "--index", idx, service}, argv...)...)
+		return
 	}
-	name := pickByIndex(names, idx)
+	name := resolveServiceContainer(files, service, idx, 60*time.Second)
 	if strings.TrimSpace(name) == "" {
-		if dry {
-			runner.Compose(dry, files, append([]string{"exec", "-T", "--index", idx, service}, argv...)...)
-			return
-		}
 		die(service + " not running")
 	}
 	ctx, cancel := execx.WithTimeout(10 * time.Minute)
 	defer cancel()
-	if dry {
-		fmt.Fprintln(os.Stderr, "+ docker exec "+name+" "+strings.Join(argv, " "))
-		return
-	}
 	all := append([]string{"exec", "-i", name}, argv...)
 	res := execx.RunCtx(ctx, "docker", all...)
 	if res.Code != 0 {
@@ -455,16 +568,12 @@ func interactiveExecServiceIdx(dry bool, files []string, service, idx string, ba
 	if strings.TrimSpace(service) == "" {
 		service = "dev-agent"
 	}
-	names := listServiceNames(files, service)
-	if len(names) == 0 {
-		names = listServiceNamesAny(service)
+	if dry {
+		runner.ComposeInteractive(dry, files, "exec", "--index", idx, service, "bash", "-lc", bashCmd)
+		return
 	}
-	name := pickByIndex(names, idx)
+	name := resolveServiceContainer(files, service, idx, 60*time.Second)
 	if strings.TrimSpace(name) == "" {
-		if dry {
-			runner.ComposeInteractive(dry, files, "exec", "--index", idx, service, "bash", "-lc", bashCmd)
-			return
-		}
 		die(service + " not running")
 	}
 	runner.HostInteractive(dry, "docker", "exec", "-it", name, "bash", "-lc", bashCmd)
@@ -781,8 +890,16 @@ func main() {
 			if ovProj == "" {
 				continue
 			}
+			ovCfg, ovDir, ovErr := config.ReadAll(paths.OverlayPaths, ovProj)
+			if ovErr != nil {
+				die(ovErr.Error())
+			}
+			restoreEnv := pushOverlayEnv(ovCfg, ovDir, paths.Root, true)
 			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
 			if err != nil {
+				if restoreEnv != nil {
+					restoreEnv()
+				}
 				die(err.Error())
 			}
 			svc := ov.Service
@@ -801,12 +918,21 @@ func main() {
 				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
 				cleanedProjects[pname] = true
 			}
+			prepareComposeProjectVolumes(dryRun, pname)
 			projMap[ovProj] = pname
 			args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
 			if ov.Build {
 				args = append(args, "--build")
 			}
-			runner.ComposeWithProject(dryRun, pname, filesOv, args...)
+			if err := runner.ComposeWithProject(dryRun, pname, filesOv, args...); err != nil {
+				if restoreEnv != nil {
+					restoreEnv()
+				}
+				die(err.Error())
+			}
+			if restoreEnv != nil {
+				restoreEnv()
+			}
 		}
 		// 1b) Ensure per-overlay SSH/Git is ready (anchor HOME + keys + global sshCommand)
 		for _, ov := range lf.Overlays {
@@ -814,8 +940,16 @@ func main() {
 			if ovProj == "" {
 				continue
 			}
+			ovCfg, ovDir, ovErr := config.ReadAll(paths.OverlayPaths, ovProj)
+			if ovErr != nil {
+				die(ovErr.Error())
+			}
+			restoreEnv := pushOverlayEnv(ovCfg, ovDir, paths.Root, true)
 			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
 			if err != nil {
+				if restoreEnv != nil {
+					restoreEnv()
+				}
 				die(err.Error())
 			}
 			svc := ov.Service
@@ -825,6 +959,9 @@ func main() {
 				svc = strings.TrimSpace(svc)
 			}
 			if svc == "" {
+				if restoreEnv != nil {
+					restoreEnv()
+				}
 				continue
 			}
 			cnt := ov.Count
@@ -832,6 +969,9 @@ func main() {
 				cnt = 1
 			}
 			configureSSHAndGit(dryRun, filesOv, ovProj, svc, cnt)
+			if restoreEnv != nil {
+				restoreEnv()
+			}
 		}
 		// 2) Apply windows into tmux using the composed project names
 		sessName := strings.TrimSpace(lf.Session)
@@ -1061,7 +1201,7 @@ func main() {
 		}
 		// Index-free HOME anchor per container (no reliance on replica index)
 		// Proactively seed SSH+Git so 'git pull' just works in the window
-	svc := resolveService(project, paths.OverlayPaths)
+		svc := resolveService(project, paths.OverlayPaths)
 		anchor := anchorHome(project)
 		base := anchorBase(project)
 		runAnchorPlan(dryRun, files, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
@@ -1100,7 +1240,7 @@ func main() {
 			idx = sub[0]
 		}
 		// Long-lived attach: no timeout
-	svc := resolveService(project, paths.OverlayPaths)
+		svc := resolveService(project, paths.OverlayPaths)
 		runner.ComposeInteractive(dryRun, files, "attach", "--index", idx, svc)
 	case "proxy":
 		mustProject(project)
@@ -1277,7 +1417,7 @@ exit 0`, home, home, home, home, home)
 			cmdstr = strings.Join(sub[2:], " ")
 		}
 		// Interactive shell: ensure anchor and seed SSH, then cd
-	svc := resolveService(project, paths.OverlayPaths)
+		svc := resolveService(project, paths.OverlayPaths)
 		anchor := anchorHome(project)
 		base := anchorBase(project)
 		runAnchorPlan(dryRun, files, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
@@ -1330,7 +1470,7 @@ exit 0`, home, home, home, home, home)
 			}
 		}
 		// Interactive shell: no timeout, index-free anchor
-	svc := resolveService(project, paths.OverlayPaths)
+		svc := resolveService(project, paths.OverlayPaths)
 		anchor := "/workspace/.devhome"
 		base := "/workspace/.devhomes"
 		if project == "dev-all" {
@@ -2224,7 +2364,7 @@ func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
 	if ctx.DryRun {
 		return
 	}
-svc := resolveService(ctx.Project, ctx.Paths.OverlayPaths)
+	svc := resolveService(ctx.Project, ctx.Paths.OverlayPaths)
 	if strings.TrimSpace(svc) == "" {
 		svc = "dev-agent"
 	}
@@ -2266,9 +2406,57 @@ func configureSSHAndGit(dry bool, files []string, project string, service string
 			execServiceIdxInput(dry, files, service, idx, knownBytes, "cat > '"+anchor+"'/.ssh/known_hosts && chmod 644 '"+anchor+"'/.ssh/known_hosts")
 		}
 		execServiceIdxInput(dry, files, service, idx, []byte(cfg), "cat > '"+anchor+"'/.ssh/config && chmod 600 '"+anchor+"'/.ssh/config")
-		cmd := fmt.Sprintf(`home='%s'; dev_home=/home/dev; if [ -d "$dev_home" ] && [ -w "$dev_home" ]; then mkdir -p "$dev_home/.ssh" && ln -sfn "$home/.ssh" "$dev_home/.ssh"; fi; mkdir -p "$home"; touch "$home/.gitconfig"; git config --file "$home/.gitconfig" core.sshCommand 'ssh -F %s/.ssh/config'; if [ -d "$dev_home" ] && [ -w "$dev_home" ]; then ln -sfn "$home/.gitconfig" "$dev_home/.gitconfig"; fi`, anchor, anchor)
+		cmd := fmt.Sprintf(`set -e; home='%[1]s'; user_home="${HOME:-}"; if [ -z "$user_home" ] || [ ! -d "$user_home" ] || [ ! -w "$user_home" ]; then for candidate in /home/dev /home/node; do if [ -d "$candidate" ] && [ -w "$candidate" ]; then user_home="$candidate"; break; fi; done; fi; mkdir -p "$home" "$home/.ssh"; touch "$home/.gitconfig"; git config --file "$home/.gitconfig" core.sshCommand 'ssh -F %[1]s/.ssh/config'; if [ -n "$user_home" ] && [ "$user_home" != "$home" ]; then mkdir -p "$user_home"; if [ -e "$user_home/.ssh" ] && [ ! -L "$user_home/.ssh" ]; then rm -rf "$user_home/.ssh"; fi; ln -sfn "$home/.ssh" "$user_home/.ssh"; if [ -e "$user_home/.gitconfig" ] && [ ! -L "$user_home/.gitconfig" ]; then rm -f "$user_home/.gitconfig"; fi; ln -sfn "$home/.gitconfig" "$user_home/.gitconfig"; fi`, anchor)
 		execServiceIdx(dry, files, service, idx, cmd)
 	}
+}
+
+func prepareComposeProjectVolumes(dry bool, composeProject string) {
+	if strings.TrimSpace(composeProject) == "" {
+		return
+	}
+	ensureCoursierCacheVolume(dry, composeProject)
+}
+
+func ensureCoursierCacheVolume(dry bool, composeProject string) {
+	volName := fmt.Sprintf("%s_coursier-cache", composeProject)
+	if dry {
+		fmt.Fprintf(os.Stderr, "+ ensure volume %s (dry-run)\n", volName)
+		return
+	}
+	if !volumeExists(volName) {
+		return
+	}
+	state, err := describeCoursierEntry(volName)
+	if err != nil {
+		return
+	}
+	if state == "file" || state == "other" {
+		fmt.Fprintf(os.Stderr, "layout-apply: removing volume %s to repair coursier cache (unexpected %s at /cache/v1)\n", volName, state)
+		runner.HostBestEffort(false, "docker", "volume", "rm", volName)
+	}
+}
+
+func volumeExists(volumeName string) bool {
+	ctx, cancel := execx.WithTimeout(5 * time.Second)
+	defer cancel()
+	_, res := execx.Capture(ctx, "docker", "volume", "inspect", volumeName, "--format", "{{.Name}}")
+	return res.Code == 0
+}
+
+func describeCoursierEntry(volumeName string) (string, error) {
+	ctx, cancel := execx.WithTimeout(15 * time.Second)
+	defer cancel()
+	script := "if [ -d /cache/v1 ]; then echo dir; elif [ -f /cache/v1 ]; then echo file; elif [ -e /cache/v1 ]; then echo other; else echo missing; fi"
+	args := []string{"run", "--rm", "--pull", "missing", "-v", volumeName + ":/cache", "alpine:3.19", "sh", "-lc", script}
+	out, res := execx.Capture(ctx, "docker", args...)
+	if res.Code != 0 {
+		if res.Err != nil {
+			return "", res.Err
+		}
+		return "", fmt.Errorf("docker %s exited with code %d", strings.Join(args, " "), res.Code)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // ensureTmuxSessionWithWindow ensures a session exists and adds a window for the given agent index and subpath.

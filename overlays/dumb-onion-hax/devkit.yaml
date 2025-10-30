@@ -1,4 +1,4 @@
-workspace: ../../dumb-onion-hax
+workspace: ../../../dumb-onion-hax
 env:
   PATH: /workspace/.local/bin:${PATH}
 hooks:

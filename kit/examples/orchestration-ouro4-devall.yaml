@@ -1,0 +1,36 @@
+session: devkit_ouro4
+
+overlays:
+  # Single dev-all overlay with 4 agents; prepares 4 worktrees for ouroboros-ide.
+  - project: dev-all
+    service: dev-agent
+    count: 4
+    profiles: dns
+    compose_project: devkit-ouro4
+    worktrees:
+      repo: ouroboros-ide
+      count: 4
+      # base_branch and branch_prefix fallback to overlays/dev-all/devkit.yaml defaults.
+
+windows:
+  # ouroboros-ide agents — each targets a distinct worktree under dev-all.
+  - index: 1
+    project: dev-all
+    service: dev-agent
+    path: ouroboros-ide
+    name: ouro-1
+  - index: 2
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent2/ouroboros-ide
+    name: ouro-2
+  - index: 3
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent3/ouroboros-ide
+    name: ouro-3
+  - index: 4
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent4/ouroboros-ide
+    name: ouro-4

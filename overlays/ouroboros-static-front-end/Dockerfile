@@ -3,7 +3,7 @@ FROM node:20-bullseye
 ARG INSTALL_CODEX=true
 ARG INSTALL_CLAUDE=true
 ARG CLAUDE_INSTALL_TIMEOUT=1200
-ARG CODEX_VERSION="rust-v0.44.0"
+ARG CODEX_VERSION="rust-v0.47.0"
 ARG CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
 ARG CODEX_SHA256=""
 
@@ -103,22 +103,33 @@ RUN printf '%s\n' \
   'set -euo pipefail' \
   'DEV_HOME="${HOME:-/workspace/.devhome}"' \
   'if [[ -z "$DEV_HOME" || "$DEV_HOME" == "/" || "$DEV_HOME" == "/home/node" ]]; then DEV_HOME="/workspace/.devhome"; fi' \
-  'mkdir -p "$DEV_HOME" /var/host-codex' \
-  'if [[ ! -r /var/host-codex/auth.json ]]; then' \
-  '  if [[ -r /var/seed-codex/auth.json ]]; then cp -f /var/seed-codex/auth.json /var/host-codex/auth.json; elif [[ -r "/var/auth.json" ]]; then cp -f "/var/auth.json" /var/host-codex/auth.json; fi' \
+  'AUTH_ROOT="/var/host-codex"' \
+  'mkdir -p "$DEV_HOME"' \
+  'mkdir -p "$AUTH_ROOT" >/dev/null 2>&1 || true' \
+  'if [[ ! -w "$AUTH_ROOT" ]]; then' \
+  '  echo "WARN: /var/host-codex not writable; using $DEV_HOME/.codex instead" >&2' \
+  '  AUTH_ROOT="$DEV_HOME/.codex"' \
   'fi' \
-  'mkdir -p /var/host-codex/rollouts' \
-  'if [[ ! -r /var/host-codex/auth.json ]]; then' \
+  'mkdir -p "$AUTH_ROOT"' \
+  'if [[ ! -r "$AUTH_ROOT/auth.json" ]]; then' \
+  '  if [[ -r /var/seed-codex/auth.json ]]; then cp -f /var/seed-codex/auth.json "$AUTH_ROOT/auth.json"; elif [[ -r "/var/auth.json" ]]; then cp -f "/var/auth.json" "$AUTH_ROOT/auth.json"; fi' \
+  'fi' \
+  'mkdir -p "$AUTH_ROOT/rollouts"' \
+  'if [[ ! -r "$AUTH_ROOT/auth.json" ]]; then' \
   '  echo "ERROR: Codex credentials not found. Mount HOST_CODEX_DIR (~/.codex) or HOST_CODEX_FILE and retry." >&2' \
   '  exit 2' \
   'fi' \
-  'chmod 600 /var/host-codex/auth.json || true' \
-  'ln -sfn /var/host-codex "$DEV_HOME/.codex"' \
+  'chmod 600 "$AUTH_ROOT/auth.json" || true' \
+  'ln -sfn "$AUTH_ROOT" "$DEV_HOME/.codex"' \
   'mkdir -p "$DEV_HOME/.cache" "$DEV_HOME/.config" "$DEV_HOME/.local"' \
-  'export HOME="$DEV_HOME" CODEX_ROLLOUT_DIR="$DEV_HOME/.codex/rollouts" XDG_CACHE_HOME="$DEV_HOME/.cache" XDG_CONFIG_HOME="$DEV_HOME/.config"' \
+  'export HOME="$DEV_HOME" CODEX_HOME="$AUTH_ROOT" CODEX_ROLLOUT_DIR="$AUTH_ROOT/rollouts" XDG_CACHE_HOME="$DEV_HOME/.cache" XDG_CONFIG_HOME="$DEV_HOME/.config"' \
   'exec "$@"' \
   > /usr/local/bin/frontend-entrypoint.sh \
   && chmod +x /usr/local/bin/frontend-entrypoint.sh
+
+# Pre-create shared auth mount point with node ownership so runtime volume stays writable.
+RUN mkdir -p /var/host-codex \
+ && chown -R node:node /var/host-codex
 
 # Create caches and workspace for the node user (uid 1000)
 RUN mkdir -p /home/node/.npm /home/node/.cache/yarn /workspace \

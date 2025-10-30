@@ -1,4 +1,4 @@
-workspace: ../../ouroboros-ide
+workspace: ../../../ouroboros-ide
 env:
   AWS_PROFILE: codex
   PATH: /workspace/.local/bin:${PATH}

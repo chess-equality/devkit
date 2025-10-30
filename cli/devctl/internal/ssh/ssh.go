@@ -31,12 +31,14 @@ func BuildWriteSteps(home string, key, pub, known []byte, cfg string) []WriteSte
 // Includes: wait for ~/.ssh/config to be non-empty, set global core.sshCommand,
 // set repo-level core.sshCommand, and git pull --ff-only using the config.
 func BuildConfigureScripts(home string, repoPath string) []string {
-    // Use tilde-based ssh config anchored at the provided home, set global core.sshCommand,
-    // scrub any repo-local override, then validate pull via explicit GIT_SSH_COMMAND.
-    return []string{
-        "home=\"" + home + "\"; for i in $(seq 1 20); do [ -s \"$home/.ssh/config\" ] && break || sleep 0.25; done",
-        "home=\"" + home + "\"; HOME=\"$home\" git config --global core.sshCommand \"ssh -F ~/.ssh/config\"",
-        "cd '" + repoPath + "' && git config --unset core.sshCommand || true",
-        "home=\"" + home + "\"; set -e; cd '" + repoPath + "'; HOME=\"$home\" GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\" git pull --ff-only || true",
-    }
+	// Use tilde-based ssh config anchored at the provided home, set global core.sshCommand,
+	// align the container user's HOME with the anchored ~/.ssh and ~/.gitconfig, scrub any
+	// repo-local override, then validate via explicit GIT_SSH_COMMAND.
+	return []string{
+		"home=\"" + home + "\"; for i in $(seq 1 20); do [ -s \"$home/.ssh/config\" ] && break || sleep 0.25; done",
+		"home=\"" + home + "\"; HOME=\"$home\" git config --global core.sshCommand \"ssh -F ~/.ssh/config\"",
+		"home=\"" + home + "\"; user_home=\"${HOME:-}\"; if [ -z \"$user_home\" ] || [ ! -d \"$user_home\" ] || [ ! -w \"$user_home\" ]; then for candidate in /home/dev /home/node; do if [ -d \"$candidate\" ] && [ -w \"$candidate\" ]; then user_home=\"$candidate\"; break; fi; done; fi; if [ -n \"$user_home\" ] && [ \"$user_home\" != \"$home\" ]; then mkdir -p \"$user_home\"; if [ -e \"$user_home/.ssh\" ] && [ ! -L \"$user_home/.ssh\" ]; then rm -rf \"$user_home/.ssh\"; fi; ln -sfn \"$home/.ssh\" \"$user_home/.ssh\"; if [ -e \"$user_home/.gitconfig\" ] && [ ! -L \"$user_home/.gitconfig\" ]; then rm -f \"$user_home/.gitconfig\"; fi; ln -sfn \"$home/.gitconfig\" \"$user_home/.gitconfig\"; fi",
+		"cd '" + repoPath + "' && git config --unset core.sshCommand || true",
+		"home=\"" + home + "\"; set -e; cd '" + repoPath + "'; HOME=\"$home\" GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\" git pull --ff-only || true",
+	}
 }

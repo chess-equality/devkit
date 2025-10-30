@@ -69,3 +69,21 @@ func ReadAll(overlays []string, project string) (OverlayConfig, string, error) {
 	}
 	return out, "", nil
 }
+
+// ResolveWorkspace returns the absolute workspace path for an overlay configuration.
+// If no workspace is configured, it returns an empty string.
+func ResolveWorkspace(cfg OverlayConfig, overlayDir string, root string) string {
+	ws := strings.TrimSpace(cfg.Workspace)
+	if ws == "" {
+		return ""
+	}
+	resolved := ws
+	if !filepath.IsAbs(ws) {
+		base := strings.TrimSpace(overlayDir)
+		if base == "" {
+			base = root
+		}
+		resolved = filepath.Clean(filepath.Join(base, ws))
+	}
+	return resolved
+}
