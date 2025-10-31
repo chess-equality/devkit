@@ -29,6 +29,8 @@ jobs:
         run: go test ./internal/... ./integration -tags=integration -run TestLayoutApply_Worktrees_DryRun -v
       - name: All tests
         run: make test
+      - name: Runtime integration tests
+        run: cd ../.. && make test-runtime
 
   integration:
     if: ${{ vars.DEVKIT_IT_IMAGE != '' }}

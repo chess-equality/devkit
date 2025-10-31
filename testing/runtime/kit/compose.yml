@@ -1,0 +1,36 @@
+services:
+  tinyproxy:
+    image: alpine:3.19
+    container_name: ${COMPOSE_PROJECT_NAME:-devkit}-test-tinyproxy
+    command: ["sleep", "infinity"]
+    networks:
+      dev-internal: {}
+
+  dev-agent:
+    image: ${DEVKIT_RUNTIME_IMAGE:-devkit/runtime-integration:latest}
+    build:
+      context: ${DEVKIT_RUNTIME_IMAGE_CONTEXT}
+      dockerfile: Dockerfile
+    user: "${DEVKIT_RUNTIME_UID:-1000}:${DEVKIT_RUNTIME_GID:-1000}"
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: ["sleep", "infinity"]
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - NO_PROXY=localhost,127.0.0.1
+    volumes:
+      - ${DEVKIT_RUNTIME_WORKSPACE}:/workspace:rw
+      - ${DEVKIT_WORKTREE_ROOT}:/worktrees:rw
+      - ${DEVKIT_RUNTIME_ROOT}:${DEVKIT_RUNTIME_ROOT}:rw
+    depends_on:
+      - tinyproxy
+    networks:
+      dev-internal:
+        aliases:
+          - dev-agent
+
+networks:
+  dev-internal:
+    driver: bridge

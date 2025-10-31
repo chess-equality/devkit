@@ -1,0 +1,8 @@
+defaults:
+  agents: 2
+  repo: ouroboros-ide
+  base_branch: main
+  branch_prefix: agent
+hooks:
+  warm: ""
+  maintain: ""

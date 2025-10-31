@@ -2,6 +2,7 @@ package composecmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -45,17 +46,20 @@ func CleanupSharedInfra(dry bool, projectName string, fileArgs []string) {
 	composeArgs = append(composeArgs, "down", "--remove-orphans")
 	runner.HostBestEffort(dry, "docker", composeArgs...)
 
-	// Shared container names across overlays (tinyproxy/dns/envoy) need explicit cleanup.
-	staleContainers := []string{"devkit_tinyproxy", "devkit_dns", "devkit_envoy", "devkit_envoy_sni"}
-	filtered := make([]string, 0, len(staleContainers))
-	for _, name := range staleContainers {
-		if containerExists(name) {
-			filtered = append(filtered, name)
+	// Shared container names across overlays (tinyproxy/dns/envoy) need explicit cleanup,
+	// but allow callers (tests) to opt out by exporting DEVKIT_SKIP_SHARED_CLEANUP=1.
+	if os.Getenv("DEVKIT_SKIP_SHARED_CLEANUP") != "1" {
+		staleContainers := []string{"devkit_tinyproxy", "devkit_dns", "devkit_envoy", "devkit_envoy_sni"}
+		filtered := make([]string, 0, len(staleContainers))
+		for _, name := range staleContainers {
+			if containerExists(name) {
+				filtered = append(filtered, name)
+			}
 		}
-	}
-	if len(filtered) > 0 {
-		rmArgs := append([]string{"rm", "-f"}, filtered...)
-		runner.HostBestEffort(dry, "docker", rmArgs...)
+		if len(filtered) > 0 {
+			rmArgs := append([]string{"rm", "-f"}, filtered...)
+			runner.HostBestEffort(dry, "docker", rmArgs...)
+		}
 	}
 
 	proj := strings.TrimSpace(projectName)

@@ -1,0 +1,7 @@
+services:
+  dns:
+    image: alpine:3.19
+    container_name: ${COMPOSE_PROJECT_NAME:-devkit}-test-dns
+    command: ["sleep", "infinity"]
+    networks:
+      dev-internal: {}

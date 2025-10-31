@@ -45,6 +45,62 @@ func anchorHome(project string) string { return agentexec.AnchorHome(project) }
 
 func composeProjectName(project string) string { return agentexec.ComposeProjectName(project) }
 
+func defaultComposeProjectName(project string) string {
+	p := strings.TrimSpace(project)
+	if p == "" || p == "codex" {
+		return "devkit"
+	}
+	return "devkit-" + p
+}
+
+func composeProjectEnvKey(project string) string {
+	p := strings.TrimSpace(project)
+	if p == "" {
+		p = "DEFAULT"
+	}
+	upper := strings.ToUpper(p)
+	var b strings.Builder
+	for _, r := range upper {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return "DEVKIT_COMPOSE_PROJECT_" + b.String()
+}
+
+func composeProjectOverride(project string) string {
+	return strings.TrimSpace(os.Getenv(composeProjectEnvKey(project)))
+}
+
+func resolveComposeProjectName(project, explicit string) string {
+	if v := strings.TrimSpace(explicit); v != "" {
+		return v
+	}
+	if v := composeProjectOverride(project); v != "" {
+		return v
+	}
+	return defaultComposeProjectName(project)
+}
+
+func withComposeProject(name string) func() {
+	name = strings.TrimSpace(name)
+	prev, had := os.LookupEnv("COMPOSE_PROJECT_NAME")
+	if name == "" {
+		_ = os.Unsetenv("COMPOSE_PROJECT_NAME")
+	} else {
+		_ = os.Setenv("COMPOSE_PROJECT_NAME", name)
+	}
+	return func() {
+		if had {
+			_ = os.Setenv("COMPOSE_PROJECT_NAME", prev)
+		} else {
+			_ = os.Unsetenv("COMPOSE_PROJECT_NAME")
+		}
+	}
+}
+
 func anchorBase(project string) string { return agentexec.AnchorBase(project) }
 
 // gitIdentityFromHost discovers a sensible git author/committer identity from the host.
@@ -837,6 +893,14 @@ func main() {
 		if err != nil {
 			die(err.Error())
 		}
+		projMap := map[string]string{}
+		for _, ov := range lf.Overlays {
+			ovProj := strings.TrimSpace(ov.Project)
+			if ovProj == "" {
+				continue
+			}
+			projMap[ovProj] = resolveComposeProjectName(ovProj, ov.ComposeProject)
+		}
 		// 0) Optional: prepare host-side worktrees for dev-all overlays that request it
 		for _, ov := range lf.Overlays {
 			if strings.TrimSpace(ov.Project) != "dev-all" {
@@ -849,6 +913,7 @@ func main() {
 			if repo == "" {
 				continue
 			}
+			restoreProj := withComposeProject(projMap[strings.TrimSpace(ov.Project)])
 			// Determine count/base/branch from worktrees block or fall back to overlay defaults
 			count := ov.Worktrees.Count
 			if count <= 0 {
@@ -877,13 +942,18 @@ func main() {
 			}
 			// Run worktree setup on host (idempotent). Use a generous timeout at the helper level.
 			if err := wtx.Setup(paths.Root, repo, count, baseBranch, branchPrefix, dryRun); err != nil {
+				if restoreProj != nil {
+					restoreProj()
+				}
 				die("worktrees setup failed: " + err.Error())
+			}
+			if restoreProj != nil {
+				restoreProj()
 			}
 		}
 		// 0.5) Track which compose projects have been cleaned to avoid stale shared containers across overlays.
 		cleanedProjects := map[string]bool{}
 		// 1) Bring up overlays with their own profiles and project names
-		projMap := map[string]string{}
 		tracker := agentexec.NewSeedTracker()
 		for _, ov := range lf.Overlays {
 			ovProj := strings.TrimSpace(ov.Project)
@@ -910,16 +980,13 @@ func main() {
 			if cnt < 1 {
 				cnt = 1
 			}
-			pname := ov.ComposeProject
-			if strings.TrimSpace(pname) == "" {
-				pname = "devkit-" + ovProj
-			}
+			pname := projMap[ovProj]
+			restoreProj := withComposeProject(pname)
 			if !cleanedProjects[pname] {
 				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
 				cleanedProjects[pname] = true
 			}
 			prepareComposeProjectVolumes(dryRun, pname)
-			projMap[ovProj] = pname
 			args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
 			if ov.Build {
 				args = append(args, "--build")
@@ -928,10 +995,16 @@ func main() {
 				if restoreEnv != nil {
 					restoreEnv()
 				}
+				if restoreProj != nil {
+					restoreProj()
+				}
 				die(err.Error())
 			}
 			if restoreEnv != nil {
 				restoreEnv()
+			}
+			if restoreProj != nil {
+				restoreProj()
 			}
 		}
 		// 1b) Ensure per-overlay SSH/Git is ready (anchor HOME + keys + global sshCommand)
@@ -968,9 +1041,13 @@ func main() {
 			if cnt < 1 {
 				cnt = 1
 			}
+			restoreProj := withComposeProject(projMap[ovProj])
 			configureSSHAndGit(dryRun, filesOv, ovProj, svc, cnt)
 			if restoreEnv != nil {
 				restoreEnv()
+			}
+			if restoreProj != nil {
+				restoreProj()
 			}
 		}
 		// 2) Apply windows into tmux using the composed project names
@@ -1289,6 +1366,45 @@ func main() {
 		// Build a script that ensures HOME dirs and runs codex inside a repo dir
 		script := fmt.Sprintf("set -euo pipefail; mkdir -p '%[1]s'/.codex/rollouts '%[1]s'/.cache '%[1]s'/.config '%[1]s'/.local; cd '%[2]s' 2>/dev/null || true; export HOME='%[1]s' CODEX_HOME='%[1]s'/.codex CODEX_ROLLOUT_DIR='%[1]s'/.codex/rollouts XDG_CACHE_HOME='%[1]s'/.cache XDG_CONFIG_HOME='%[1]s'/.config; if codex exec 'reply with: ok' 2>&1 | tr -d '\r' | grep -m1 -x ok >/dev/null; then echo ok; else echo 'codex-test failed'; exit 1; fi", home, wd)
 		runner.Compose(dryRun, files, "exec", "--index", idx, "dev-agent", "bash", "-lc", script)
+	case "doctor-runtime":
+		mustProject(project)
+		if os.Getenv("DEVKIT_ENABLE_RUNTIME_CONFIG") != "1" {
+			die("runtime config disabled; set DEVKIT_ENABLE_RUNTIME_CONFIG=1")
+		}
+		root := strings.TrimSpace(os.Getenv("DEVKIT_WORKTREE_ROOT"))
+		if root == "" {
+			die("DEVKIT_WORKTREE_ROOT not set")
+		}
+		if !filepath.IsAbs(root) {
+			die("DEVKIT_WORKTREE_ROOT must be an absolute path")
+		}
+		if info, err := os.Stat(root); err != nil || !info.IsDir() {
+			if err != nil {
+				die("worktree root not accessible: " + err.Error())
+			}
+			die("worktree root is not a directory: " + root)
+		}
+		svc := resolveService(project, paths.OverlayPaths)
+		if strings.TrimSpace(svc) == "" {
+			svc = "dev-agent"
+		}
+		if dryRun {
+			fmt.Printf("[doctor-runtime] would inspect service %s containers for /worktrees mount\n", svc)
+			runner.Compose(dryRun, files, "exec", "--index", "1", svc, "bash", "-lc", "test -d /worktrees && mount | grep ' /worktrees '")
+			break
+		}
+		names := listServiceNames(files, svc)
+		if len(names) == 0 {
+			die("no containers for service " + svc + "; bring the overlay up first")
+		}
+		fmt.Printf("doctor-runtime: host worktree root %s OK\n", root)
+		for idx, name := range names {
+			index := fmt.Sprintf("%d", idx+1)
+			script := "set -euo pipefail; test -d /worktrees; mount | grep -q ' /worktrees '"
+			runner.Compose(dryRun, files, "exec", "--index", index, svc, "bash", "-lc", script)
+			fmt.Printf("container %s mounts /worktrees\n", name)
+		}
+		fmt.Println("doctor-runtime: OK")
 	case "verify":
 		// Verify SSH to GitHub, Codex basic exec, and worktrees status (when applicable)
 		mustProject(project)

@@ -39,6 +39,8 @@ func TestRun_DryRun(t *testing.T) {
 		t.Skipf("go build failed: %v\n%s", err, out)
 	}
 
+	t.Setenv("COMPOSE_PROJECT_NAME", "")
+
 	var stderr bytes.Buffer
 	cmd := exec.Command(bin, "--dry-run", "--no-tmux", "--no-seed", "-p", "dev-all", "run", "testrepo", "2")
 	cmd.Env = append(os.Environ(), "DEVKIT_ROOT="+root)
@@ -52,12 +54,14 @@ func TestRun_DryRun(t *testing.T) {
 	wants := []string{
 		"compose -f ",
 		" up -d --remove-orphans --scale dev-agent=2",
-		"docker exec -t devkit-devall-dev-agent-1 bash -lc",
 		"/workspaces/dev/" + pth.AgentWorktreesDir + "/agent2/testrepo",
 	}
 	for _, w := range wants {
 		if !strings.Contains(out, w) {
 			t.Fatalf("missing %q in:\n%s", w, out)
 		}
+	}
+	if !(strings.Contains(out, "docker exec -t") && strings.Contains(out, "dev-agent-1 bash -lc")) {
+		t.Fatalf("missing docker exec for agent1 in:\n%s", out)
 	}
 }

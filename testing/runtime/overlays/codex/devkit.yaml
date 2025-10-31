@@ -1,0 +1,8 @@
+defaults:
+  agents: 1
+  repo: codex-repo
+  base_branch: main
+  branch_prefix: agent
+hooks:
+  warm: ""
+  maintain: ""

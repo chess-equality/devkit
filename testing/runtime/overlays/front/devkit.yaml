@@ -1,0 +1,9 @@
+defaults:
+  agents: 1
+  repo: front-repo
+  base_branch: main
+  branch_prefix: agent
+service: dev-agent
+hooks:
+  warm: ""
+  maintain: ""

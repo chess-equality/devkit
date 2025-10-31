@@ -18,3 +18,4 @@
 - Runtime doctor: `scripts/devkit doctor-runtime` (requires `DEVKIT_ENABLE_RUNTIME_CONFIG=1`).
 - Worktree summary: `scripts/devkit worktrees-plan <repo>`.
 - Integration smoke test: `DEVKIT_ENABLE_RUNTIME_CONFIG=1 DEVKIT_WORKTREE_ROOT=$(mktemp -d) go test ./cli/devctl/internal/worktrees -run TestSetup_RuntimeConfig_TwoAgents` (run from devkit root).
+- Runtime integration suite: `make test-runtime` (builds the lightweight test image, provisions a temporary worktree root, and runs docker compose–backed checks; this suite now runs automatically in CI).

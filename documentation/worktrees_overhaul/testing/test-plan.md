@@ -42,15 +42,16 @@
 - Use contexts/timeouts to avoid hanging docker commands.
 
 ### 6. CI Integration
-- Add a make target (`make test-runtime`) that runs the new test package, optionally guarded by `DEVKIT_RUNTIME_TESTS=1` so developers can opt-in.
+- Add a make target (`make test-runtime`) that runs the new test package and wire it into CI so the runtime suite executes on every PR.
 - Document prerequisites: docker available, no conflicting compose project names.
 
 ### 7. Documentation
 - Update `documentation/developer-onboarding.md` and `worktrees_overhaul` docs to reference `make test-runtime` as part of validation.
 
-## Next Steps
-1. Implement `internal/testutil/fixture.go` providing `RuntimeFixture` with `t.Cleanup` guarantees.
-2. Create a minimal compose file under `testing/runtime/compose.test.yml` for the fixture.
-3. Write `runtime/doctor_test.go` covering the doctor command.
-3. Add additional tests iteratively (layout apply, worktrees sync).
-4. Wire `make test-runtime` target and update CI config.
+## Status
+- ✅ `internal/testutil/fixture.go` now provides a `RuntimeFixture` that provisions repositories, generates unique compose project names, and wires cleanup via `t.Cleanup`.
+- ✅ Minimal compose and overlay assets live under `testing/runtime/` (image, compose stubs, codex shim, proxy stubs) to keep runtime stacks lightweight and isolated.
+- ✅ Runtime integration tests (`doctor-runtime`, `layout-apply`, `worktrees-status/sync`, `verify`) reside in `cli/devctl/integration/runtime`.
+- ✅ `make test-runtime` now runs the suite automatically; CI invokes it on every change, and developers can run it locally with the same command.
+- ✅ `CleanupSharedInfra` honors `DEVKIT_SKIP_SHARED_CLEANUP=1`, preventing runtime tests from tearing down the globally-named proxy containers (`devkit_tinyproxy`, `devkit_dns`). The fixture exports this guard by default.
+- ✅ Dedicated proxy stubs in `testing/runtime/kit/` use compose-project-scoped container names, so even if cleanup runs, it only touches the isolated test stack.

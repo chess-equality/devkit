@@ -1,0 +1,6 @@
+services:
+  dev-agent:
+    environment:
+      - DEVKIT_TEST_OVERLAY=codex
+    volumes:
+      - ${DEVKIT_RUNTIME_REMOTES}:/workspaces/remotes:ro

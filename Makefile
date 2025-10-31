@@ -53,6 +53,11 @@ health: build-cli
 	@echo "== Health: dev-all overlay =="
 	@$(CLI) -p dev-all verify
 
+.PHONY: test-runtime
+test-runtime:
+	@echo "== Running runtime integration tests =="
+	@cd cli/devctl && DEVKIT_RUNTIME_TESTS=1 go test -timeout 20m ./integration/runtime -count=1
+
 # Idempotent run: ensure worktrees and bring up N agents with tmux windows
 run: build-cli
 	@echo "== Run: $(REPO) with N=$(N) agents (dev-all overlay) =="

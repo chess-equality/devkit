@@ -1,0 +1,9 @@
+services:
+  dev-agent:
+    environment:
+      - DEVKIT_TEST_OVERLAY=dev-all
+    volumes:
+      - ${DEVKIT_RUNTIME_DEVROOT}:/workspaces/dev:rw
+      - ${DEVKIT_RUNTIME_REMOTES}:/workspaces/remotes:rw
+      - ${DEVKIT_WORKTREE_ROOT}/agent2:/workspaces/dev/agent-worktrees/agent2:rw
+      - ${DEVKIT_WORKTREE_ROOT}/agent3:/workspaces/dev/agent-worktrees/agent3:rw

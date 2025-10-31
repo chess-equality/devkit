@@ -1,0 +1,6 @@
+services:
+  dev-agent:
+    environment:
+      - DEVKIT_TEST_OVERLAY=front
+    volumes:
+      - ${DEVKIT_RUNTIME_DEVROOT}:/workspaces/dev:rw
