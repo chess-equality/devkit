@@ -24,6 +24,7 @@ keyserver.ubuntu.com
 api.openai.com
 platform.openai.com
 chatgpt.com
+auth.openai.com
 
 # AWS (us-east-2 primary)
 sts.amazonaws.com

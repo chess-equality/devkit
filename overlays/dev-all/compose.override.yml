@@ -15,6 +15,7 @@ services:
     working_dir: /workspaces/dev
     volumes:
       - ../../:/workspaces/dev:rw
+      - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
       - ivy2-cache:/home/dev/.ivy2
       - coursier-cache:/home/dev/.cache/coursier
       - devkit-auth:/home/dev/.codex

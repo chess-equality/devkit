@@ -38,6 +38,7 @@ services:
       - dev-internal
     volumes:
       - ${WORKSPACE_DIR:-.}:/workspace:rw
+      - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
       # Cache directories for faster installs
       - npm-cache:/home/node/.npm
       - yarn-cache:/home/node/.cache/yarn

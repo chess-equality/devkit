@@ -27,6 +27,8 @@ services:
     volumes:
       # Mount your repo into /workspace (rw). The CLI fills WORKSPACE_DIR from devkit.yaml.
       - ${WORKSPACE_DIR:-.}:/workspace:rw
+      # Mount the runtime worktree root so each agent can access its own branch.
+      - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
 
 networks:
   dev-internal:

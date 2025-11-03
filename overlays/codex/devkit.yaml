@@ -1,4 +1,10 @@
 workspace: ../../../ouroboros-ide
+service: dev-agent
+defaults:
+  repo: ouroboros-ide
+  agents: 1
+  base_branch: main
+  branch_prefix: agent
 env:
   AWS_PROFILE: codex
   PATH: /workspace/.local/bin:${PATH}

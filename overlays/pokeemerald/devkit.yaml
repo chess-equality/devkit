@@ -1,4 +1,10 @@
 workspace: ../../../pokeemerald-expansion
+service: dev-agent
+defaults:
+  repo: pokeemerald-expansion
+  agents: 1
+  base_branch: main
+  branch_prefix: agent
 env:
   PATH: /workspace/.local/bin:${PATH}
 hooks:

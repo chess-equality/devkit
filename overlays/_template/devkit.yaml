@@ -2,6 +2,12 @@
 workspace: ../../path-to-your-repo
 service: app
 
+defaults:
+  repo: your-repo-name
+  agents: 1
+  base_branch: main
+  branch_prefix: agent
+
 # Optional: environment exported on the host before running compose commands
 env: {}
 

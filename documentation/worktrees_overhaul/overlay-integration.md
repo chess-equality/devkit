@@ -17,7 +17,7 @@
 | --- | --- | --- | --- |
 | Decide metadata home (`layout` vs `devkit.yaml`) | Platform | ✅ | Keep `worktrees` in layout overlays; fall back to overlay defaults when values omitted. |
 | Update `applyOverlayEnv` to surface runtime vars | Platform | ✅ | CLI now exports `DEVKIT_WORKTREE_ROOT` / `DEVKIT_WORKTREE_CONTAINER_ROOT` before overlays apply. |
-| Refactor compose overrides to use injected paths | Repo owners | ⏳ | Provide migration guidance + lint check. Use `${DEVKIT_WORKTREE_ROOT}` helpers for flagged mode. |
+| Refactor compose overrides to use injected paths | Repo owners | ✅ | Overlays now mount `${DEVKIT_WORKTREE_ROOT}` into `${DEVKIT_WORKTREE_CONTAINER_ROOT}` alongside their workspace mounts. |
 | Update layout templates (`kit/examples/...`) | Platform | ✅ | Example now shows per-overlay worktrees. |
 | Add integration tests for mixed overlays | QA | ✅ | Dry-run integration asserts secondary overlay worktree setup. |
 

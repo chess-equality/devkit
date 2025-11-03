@@ -246,6 +246,15 @@ func applyOverlayEnvInternal(cfg config.OverlayConfig, overlayDir string, root s
 	if base == "" {
 		base = root
 	}
+	if _, ok := os.LookupEnv("DEVKIT_WORKTREE_CONTAINER_ROOT"); !ok {
+		_ = os.Setenv("DEVKIT_WORKTREE_CONTAINER_ROOT", "/worktrees")
+	}
+	if _, ok := os.LookupEnv("DEVKIT_WORKTREE_ROOT"); !ok {
+		defaultRoot := filepath.Join(filepath.Clean(filepath.Join(root, "..")), pth.AgentWorktreesDir)
+		if strings.TrimSpace(defaultRoot) != "" {
+			_ = os.Setenv("DEVKIT_WORKTREE_ROOT", defaultRoot)
+		}
+	}
 	setEnv := func(key string, raw string, resolved string, expand bool) {
 		k := strings.TrimSpace(key)
 		if k == "" {

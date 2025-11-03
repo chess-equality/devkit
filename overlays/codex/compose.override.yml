@@ -9,7 +9,7 @@ services:
         INSTALL_CODEX: "${INSTALL_CODEX:-true}"
         INSTALL_CLAUDE: "${INSTALL_CLAUDE:-true}"
         JDK_VERSION: "${JDK_VERSION:-17}"
-        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.47.0}"
+        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.53.0}"
         CODEX_ASSET: "${CODEX_ASSET:-codex-x86_64-unknown-linux-musl.tar.gz}"
         CODEX_SHA256: "${CODEX_SHA256:-}"
         CLAUDE_VERSION: "${CLAUDE_VERSION:-latest}"
@@ -26,6 +26,7 @@ services:
       - TESTCONTAINERS_RYUK_DISABLED=true
     volumes:
       - ${WORKSPACE_DIR:-.}:/workspace:rw
+      - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
       - ivy2-cache:/home/dev/.ivy2
       - coursier-cache:/home/dev/.cache/coursier
       - devkit-auth:/home/dev/.codex

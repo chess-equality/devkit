@@ -1,5 +1,10 @@
 workspace: ../../../ouroboros-static-front-end
 service: frontend
+defaults:
+  repo: ouroboros-static-front-end
+  agents: 1
+  base_branch: main
+  branch_prefix: agent
 env:
   NODE_ENV: development
   GATSBY_TELEMETRY_DISABLED: "1"

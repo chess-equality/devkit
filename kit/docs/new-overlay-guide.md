@@ -9,6 +9,7 @@ Manual steps if not using the template:
 - overlays/<name>/devkit.yaml
   - Required: `workspace: ../../<your-repo-folder>` — the CLI resolves it to an absolute `WORKSPACE_DIR` before compose runs.
   - Recommended: `service: <service-name>` to set the default service for CLI exec/attach/ssh/repo commands.
+  - Recommended: `defaults:` block describing the repo name (`defaults.repo`), desired agent count (`defaults.agents`), and branch metadata (`defaults.base_branch`, `defaults.branch_prefix`) so runtime-config helpers work without extra flags.
   - Optional: `env:` to provide host defaults (e.g., `AWS_PROFILE`) that users can still override.
   - Optional: `env_files:` pointing at dotenv-style files (paths relative to the overlay directory) to prepopulate env vars without committing secrets.
   - Optional hooks: `warm`, `maintain` (run inside container via `devkit warm|maintain`).
@@ -54,6 +55,7 @@ services:
       - dev-internal
     volumes:
       - ${WORKSPACE_DIR:-.}:/workspace:rw
+      - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
 
 networks:
   dev-internal:
