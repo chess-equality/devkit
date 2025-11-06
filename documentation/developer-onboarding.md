@@ -27,3 +27,14 @@
   docker exec <container> codexw exec 'reply with: ok'
   ```
 - The next invocation re-seeds the cache from the host copy, avoiding stale refresh tokens without forcing a full reauth.
+
+## Orchestration Tips
+- Layout files can now request a dedicated network per overlay:
+  ```yaml
+  overlays:
+    - project: dev-all
+      network:
+        subnet: 172.31.155.0/24
+        dns_ip: 172.31.155.3
+  ```
+- `layout-apply` automatically removes stale networks/containers for the target compose project and retries with a different CIDR when Docker reports “pool overlaps” errors, so you no longer need to export `DEVKIT_INTERNAL_SUBNET` manually.*** End Patch

@@ -8,9 +8,10 @@
 ## Desired Changes
 1. **Per-repo overlays own their workspace instructions.** `devkit.yaml` files continue to set `workspace`, but the CLI rewrites `${WORKSPACE_DIR}` to point at `<worktree root>/<repo>/agent<idx>` for the active agent. Overlay authors no longer reference `agent-worktrees` directly.
 2. **Layout metadata expresses worktree needs per overlay.** We either expand the existing `worktrees` stanza to allow any overlay to opt-in, or add a `worktree` block inside `devkit.yaml` (single source TBD). Layout apply reads this data and orchestrates host setup before tmux windows spawn.
-3. **Overlay env application injects runtime config.** `applyOverlayEnv` exports `DEVKIT_WORKTREE_ROOT` (host) and `DEVKIT_WORKTREE_CONTAINER_ROOT` (defaults to `/worktrees`) so compose files and scripts can mount the worktree hierarchy without guessing.
-4. **Examples reflect mixed overlays without dev-all.** Update orchestration templates to show multiple repos with independent counts using the new helper functions.
-5. **Compose mounts worktrees generically.** Overlays reference `${DEVKIT_WORKTREE_ROOT}` and `${DEVKIT_WORKTREE_CONTAINER_ROOT}` to ensure every agent sees the correct host directories.
+3. **Network configuration lives alongside overlay definitions.** Layout entries can now specify a `network` block (`subnet`, `dns_ip`). `layout-apply` tears down stale networks for that compose project, picks the requested (or first available) CIDR, and retries automatically if Docker reports a collision.
+4. **Overlay env application injects runtime config.** `applyOverlayEnv` exports `DEVKIT_WORKTREE_ROOT` (host) and `DEVKIT_WORKTREE_CONTAINER_ROOT` (defaults to `/worktrees`) so compose files and scripts can mount the worktree hierarchy without guessing.
+5. **Examples reflect mixed overlays without dev-all.** Update orchestration templates to show multiple repos with independent counts using the new helper functions.
+6. **Compose mounts worktrees generically.** Overlays reference `${DEVKIT_WORKTREE_ROOT}` and `${DEVKIT_WORKTREE_CONTAINER_ROOT}` to ensure every agent sees the correct host directories.
 
 ## Task Breakdown
 | Task | Owner | Status | Notes |

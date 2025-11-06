@@ -84,6 +84,113 @@ func resolveComposeProjectName(project, explicit string) string {
 	return defaultComposeProjectName(project)
 }
 
+func isNetworkConflictErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "address already in use") || strings.Contains(msg, "pool overlaps with other one on this address space")
+}
+
+func pushNetworkEnv(cidr, dns string) func() {
+	changed := map[string]*string{}
+	set := func(key, val string) {
+		if _, recorded := changed[key]; !recorded {
+			if cur, ok := os.LookupEnv(key); ok {
+				valCopy := cur
+				changed[key] = &valCopy
+			} else {
+				changed[key] = nil
+			}
+		}
+		_ = os.Setenv(key, val)
+	}
+	set("DEVKIT_INTERNAL_SUBNET", cidr)
+	set("DEVKIT_DNS_IP", dns)
+	return func() {
+		for key, prev := range changed {
+			if prev == nil {
+				_ = os.Unsetenv(key)
+			} else {
+				_ = os.Setenv(key, *prev)
+			}
+		}
+	}
+}
+
+func pickOverlaySubnet(netCfg *layout.Network, tried map[string]bool, global map[string]bool) (string, string, error) {
+	preferred := ""
+	if netCfg != nil {
+		preferred = strings.TrimSpace(netCfg.Subnet)
+	}
+	used := append([]string{}, netutil.UsedCIDRs()...)
+	for cid := range global {
+		used = append(used, cid)
+	}
+	for cid := range tried {
+		used = append(used, cid)
+	}
+	for _, candidate := range candidateCIDRs(preferred) {
+		if tried[candidate] {
+			continue
+		}
+		if netutil.OverlapsAnyCIDR(candidate, used) {
+			continue
+		}
+		dns := ""
+		if netCfg != nil && strings.TrimSpace(netCfg.Subnet) == candidate {
+			dns = strings.TrimSpace(netCfg.DNSIP)
+		}
+		if dns == "" {
+			dns = netutil.DNSFromCIDR(candidate)
+		}
+		return candidate, dns, nil
+	}
+	return "", "", fmt.Errorf("layout-apply: unable to find free subnet (preferred %q)", preferred)
+}
+
+func candidateCIDRs(preferred string) []string {
+	seen := map[string]bool{}
+	add := func(c string) {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] {
+			return
+		}
+		seen[c] = true
+	}
+	add(preferred)
+	for second := 16; second <= 31; second++ {
+		for third := 0; third < 256; third += 8 {
+			add(fmt.Sprintf("172.%d.%d.0/24", second, third))
+		}
+	}
+	for second := 0; second < 256; second += 8 {
+		for third := 0; third < 256; third += 16 {
+			add(fmt.Sprintf("10.%d.%d.0/24", second, third))
+		}
+	}
+	for third := 0; third < 256; third += 4 {
+		add(fmt.Sprintf("192.168.%d.0/24", third))
+	}
+	result := make([]string, 0, len(seen))
+	for cid := range seen {
+		result = append(result, cid)
+	}
+	sort.Strings(result)
+	// Ensure preferred (if present) remains first.
+	if preferred != "" && seen[strings.TrimSpace(preferred)] {
+		for i, cid := range result {
+			if cid == strings.TrimSpace(preferred) {
+				if i != 0 {
+					result[0], result[i] = result[i], result[0]
+				}
+				break
+			}
+		}
+	}
+	return result
+}
+
 func withComposeProject(name string) func() {
 	name = strings.TrimSpace(name)
 	prev, had := os.LookupEnv("COMPOSE_PROJECT_NAME")
@@ -910,6 +1017,7 @@ func main() {
 			}
 			projMap[ovProj] = resolveComposeProjectName(ovProj, ov.ComposeProject)
 		}
+		allocatedCIDRs := map[string]bool{}
 		// 0) Optional: prepare host-side worktrees for dev-all overlays that request it
 		for _, ov := range lf.Overlays {
 			if strings.TrimSpace(ov.Project) != "dev-all" {
@@ -995,19 +1103,49 @@ func main() {
 				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
 				cleanedProjects[pname] = true
 			}
-			prepareComposeProjectVolumes(dryRun, pname)
-			args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
-			if ov.Build {
-				args = append(args, "--build")
+			tried := map[string]bool{}
+			var lastErr error
+			success := false
+			for attempt := 0; attempt < 64; attempt++ {
+				cidr, dns, pickErr := pickOverlaySubnet(ov.Network, tried, allocatedCIDRs)
+				if pickErr != nil {
+					lastErr = pickErr
+					break
+				}
+				tried[cidr] = true
+				restoreNet := pushNetworkEnv(cidr, dns)
+				prepareComposeProjectVolumes(dryRun, pname)
+				args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
+				if ov.Build {
+					args = append(args, "--build")
+				}
+				if os.Getenv("DEVKIT_DEBUG") == "1" {
+					fmt.Fprintf(os.Stderr, "[layout] overlay %s using subnet %s dns %s (attempt %d)\n", ovProj, cidr, dns, attempt+1)
+				}
+				err := runner.ComposeWithProject(dryRun, pname, filesOv, args...)
+				restoreNet()
+				if err == nil {
+					allocatedCIDRs[cidr] = true
+					success = true
+					break
+				}
+				lastErr = err
+				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
+				if netutil.SubnetAvailable(cidr) {
+					break
+				}
 			}
-			if err := runner.ComposeWithProject(dryRun, pname, filesOv, args...); err != nil {
+			if !success {
 				if restoreEnv != nil {
 					restoreEnv()
 				}
 				if restoreProj != nil {
 					restoreProj()
 				}
-				die(err.Error())
+				if lastErr != nil {
+					die(lastErr.Error())
+				}
+				die("layout-apply: failed to allocate network for overlay " + ovProj)
 			}
 			if restoreEnv != nil {
 				restoreEnv()

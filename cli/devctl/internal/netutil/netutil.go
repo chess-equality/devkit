@@ -1,12 +1,17 @@
 package netutil
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
+
+	"devkit/cli/devctl/internal/execx"
 )
 
 type routeEntry struct {
@@ -55,6 +60,10 @@ func PickInternalSubnet() (cidr string, dnsIP string) {
 	cidr = "172.30.10.0/24"
 	dnsIP = dnsFromCIDR(cidr)
 	return
+}
+
+func DNSFromCIDR(cidr string) string {
+	return dnsFromCIDR(cidr)
 }
 
 func dnsFromCIDR(cidr string) string {
@@ -109,6 +118,11 @@ func overlapsAny(candidate string, used []string) bool {
 	return false
 }
 
+// OverlapsAnyCIDR reports whether candidate overlaps with any entry in used.
+func OverlapsAnyCIDR(candidate string, used []string) bool {
+	return overlapsAny(candidate, used)
+}
+
 func cidrOverlap(a, b *net.IPNet) bool {
 	return a.Contains(b.IP) || b.Contains(a.IP)
 }
@@ -129,14 +143,14 @@ func getUsedCIDRs() []string {
 				}
 			}
 			if len(res) > 0 {
-				return res
+				return append(res, getDockerNetworkCIDRs()...)
 			}
 		}
 	}
 	// Fallback: `ip route`
 	out, err = exec.Command("ip", "route").Output()
 	if err != nil {
-		return nil
+		return getDockerNetworkCIDRs()
 	}
 	var res []string
 	for _, line := range strings.Split(string(out), "\n") {
@@ -151,5 +165,50 @@ func getUsedCIDRs() []string {
 			res = append(res, fields[0])
 		}
 	}
-	return res
+	return append(res, getDockerNetworkCIDRs()...)
+}
+
+func getDockerNetworkCIDRs() []string {
+	out, err := exec.Command("docker", "network", "ls", "--format", "{{.ID}}").Output()
+	if err != nil {
+		return nil
+	}
+	lines := strings.Fields(strings.TrimSpace(string(out)))
+	if len(lines) == 0 {
+		return nil
+	}
+	cidrs := make([]string, 0, len(lines))
+	for _, id := range lines {
+		inspect, err := exec.Command("docker", "network", "inspect", id, "--format", "{{range .IPAM.Config}}{{.Subnet}}\n{{end}}").Output()
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(inspect), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			cidrs = append(cidrs, line)
+		}
+	}
+	return cidrs
+}
+
+// UsedCIDRs exposes the discovered CIDR list (host + docker networks).
+func UsedCIDRs() []string {
+	return getUsedCIDRs()
+}
+
+// SubnetAvailable attempts to create a dummy network with the provided CIDR to detect conflicts.
+// Returns true if the subnet can be used.
+func SubnetAvailable(cidr string) bool {
+	name := fmt.Sprintf("devkit-cidr-test-%d", time.Now().UnixNano())
+	ctx, cancel := execx.WithTimeout(10 * time.Second)
+	defer cancel()
+	res := execx.RunCtx(ctx, "docker", "network", "create", "--driver", "bridge", "--subnet", cidr, name)
+	if res.Code != 0 {
+		return false
+	}
+	_ = execx.RunCtx(context.Background(), "docker", "network", "rm", name)
+	return true
 }
