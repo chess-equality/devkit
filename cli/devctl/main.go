@@ -84,6 +84,14 @@ func resolveComposeProjectName(project, explicit string) string {
 	return defaultComposeProjectName(project)
 }
 
+func stdoutIsTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
 func isNetworkConflictErr(err error) bool {
 	if err == nil {
 		return false
@@ -1131,9 +1139,10 @@ func main() {
 				}
 				lastErr = err
 				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
-				if netutil.SubnetAvailable(cidr) {
+				if !isNetworkConflictErr(err) {
 					break
 				}
+				continue
 			}
 			if !success {
 				if restoreEnv != nil {
@@ -1289,7 +1298,14 @@ func main() {
 			runner.Host(dryRun, "tmux", tmuxutil.NewWindow(sessName, name, cmdStr)...)
 		}
 		if doAttach {
-			runner.HostInteractive(dryRun, "tmux", tmuxutil.Attach(sessName)...)
+			switch {
+			case skipTmux():
+				fmt.Fprintln(os.Stderr, "layout-apply: --attach skipped because DEVKIT_NO_TMUX=1")
+			case !stdoutIsTTY():
+				fmt.Fprintln(os.Stderr, "layout-apply: --attach skipped because stdout is not a TTY")
+			default:
+				runner.HostInteractive(dryRun, "tmux", tmuxutil.Attach(sessName)...)
+			}
 		}
 	case "layout-validate":
 		mustProject(project)
