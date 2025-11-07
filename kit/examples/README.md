@@ -20,3 +20,12 @@ devkit/kit/scripts/devkit -p codex layout-apply --file devkit/kit/examples/orche
 ```
 
 Use `COMPOSE_PROJECT_NAME=devkit-codex8 devkit/kit/scripts/devkit -p codex down` when you're done.
+
+### Automated check
+`kit/tests/codex-layout-verify.sh` runs the full workflow (layout apply, tmux session creation, Codex “ok”, `git pull`, tmux/compose teardown). Example:
+
+```bash
+DEVKIT_ENABLE_RUNTIME_CONFIG=1 \
+DEVKIT_WORKTREE_ROOT=$HOME/devkit-worktrees \
+devkit/kit/tests/codex-layout-verify.sh
+```
