@@ -41,6 +41,8 @@ import (
 	pooldisc "devkit/cli/devctl/internal/pool"
 )
 
+var tmuxForceOverride bool
+
 func anchorHome(project string) string { return agentexec.AnchorHome(project) }
 
 func composeProjectName(project string) string { return agentexec.ComposeProjectName(project) }
@@ -901,6 +903,7 @@ func main() {
 		cfgDir = overlayDir
 	}
 	applyOverlayEnv(overlayCfg, cfgDir, paths.Root)
+	tmuxForceOverride = forceTmux
 	if forceTmux {
 		_ = os.Unsetenv("DEVKIT_NO_TMUX")
 	}
@@ -1006,7 +1009,6 @@ func main() {
 			doSyncTmux(dryRun, paths, project, files, sessName, namePrefix, cdPath, mustAtoi(n), service)
 		}
 	case "layout-apply":
-		mustProject(project)
 		layoutPath := ""
 		doAttach := false
 		for i := 0; i < len(sub); i++ {
@@ -1037,6 +1039,10 @@ func main() {
 		}
 		var overlayRuns []overlayRun
 		projMap := map[string]string{}
+		filesByProject := map[string][]string{}
+		if strings.TrimSpace(project) != "" {
+			filesByProject[project] = files
+		}
 		for _, ov := range lf.Overlays {
 			ovProj := strings.TrimSpace(ov.Project)
 			if ovProj == "" {
@@ -1066,9 +1072,21 @@ func main() {
 			if os.Getenv("DEVKIT_DEBUG") == "1" {
 				fmt.Fprintf(os.Stderr, "[layout] register overlay %s compose_project=%s profiles=%s\n", run.Project, run.ComposeProj, strings.TrimSpace(ov.Profiles))
 			}
+			filesByProject[ovProj] = filesOv
 			overlayRuns = append(overlayRuns, run)
 		}
 		allocatedCIDRs := map[string]bool{}
+		resolveWindowFiles := func(winProj string) []string {
+			if fargs, ok := filesByProject[winProj]; ok && len(fargs) > 0 {
+				return fargs
+			}
+			fargs, err := compose.Files(paths, winProj, profile)
+			if err != nil {
+				die(err.Error())
+			}
+			filesByProject[winProj] = fargs
+			return fargs
+		}
 		// 0) Optional: prepare host-side worktrees for dev-all overlays that request it
 		for _, run := range overlayRuns {
 			if strings.TrimSpace(run.Project) != "dev-all" {
@@ -1120,6 +1138,34 @@ func main() {
 		}
 		// 0.5) Track which compose projects have been cleaned to avoid stale shared containers across overlays.
 		cleanedProjects := map[string]bool{}
+		withNetwork := func(run overlayRun, fn func(cidr, dns string) error) error {
+			tried := map[string]bool{}
+			var lastErr error
+			for attempt := 0; attempt < 64; attempt++ {
+				cidr, dns, pickErr := pickOverlaySubnet(run.Network, tried, allocatedCIDRs)
+				if pickErr != nil {
+					lastErr = pickErr
+					break
+				}
+				tried[cidr] = true
+				restoreNet := pushNetworkEnv(cidr, dns)
+				err := fn(cidr, dns)
+				restoreNet()
+				if err == nil {
+					allocatedCIDRs[cidr] = true
+					return nil
+				}
+				lastErr = err
+				if !isNetworkConflictErr(err) {
+					break
+				}
+				composecmd.CleanupSharedInfra(dryRun, run.ComposeProj, run.FileArgs)
+			}
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("layout-apply: failed to allocate network for overlay %s", run.Project)
+		}
 		// 1) Bring up overlays with their own profiles and project names
 		tracker := agentexec.NewSeedTracker()
 		for _, run := range overlayRuns {
@@ -1139,50 +1185,33 @@ func main() {
 				composecmd.CleanupSharedInfra(dryRun, pname, run.FileArgs)
 				cleanedProjects[pname] = true
 			}
-			tried := map[string]bool{}
-			var lastErr error
-			success := false
-			for attempt := 0; attempt < 64; attempt++ {
-				cidr, dns, pickErr := pickOverlaySubnet(run.Network, tried, allocatedCIDRs)
-				if pickErr != nil {
-					lastErr = pickErr
-					break
-				}
-				tried[cidr] = true
-				restoreNet := pushNetworkEnv(cidr, dns)
+			err := withNetwork(run, func(cidr, dns string) error {
 				prepareComposeProjectVolumes(dryRun, pname)
 				args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
 				if run.Build {
 					args = append(args, "--build")
 				}
 				if os.Getenv("DEVKIT_DEBUG") == "1" {
-					fmt.Fprintf(os.Stderr, "[layout] overlay %s using subnet %s dns %s (attempt %d)\n", ovProj, cidr, dns, attempt+1)
+					fmt.Fprintf(os.Stderr, "[layout] overlay %s using subnet %s dns %s\n", ovProj, cidr, dns)
 				}
-				err := runner.ComposeWithProject(dryRun, pname, run.FileArgs, args...)
-				restoreNet()
-				if err == nil {
-					allocatedCIDRs[cidr] = true
-					success = true
-					break
+				if err := runner.ComposeWithProject(dryRun, pname, run.FileArgs, args...); err != nil {
+					return err
 				}
-				lastErr = err
-				composecmd.CleanupSharedInfra(dryRun, pname, run.FileArgs)
-				if !isNetworkConflictErr(err) {
-					break
+				prepareComposeProjectVolumes(dryRun, pname)
+				if !cleanedProjects[pname] {
+					composecmd.CleanupSharedInfra(dryRun, pname, run.FileArgs)
+					cleanedProjects[pname] = true
 				}
-				continue
-			}
-			if !success {
+				return nil
+			})
+			if err != nil {
 				if restoreEnv != nil {
 					restoreEnv()
 				}
 				if restoreProj != nil {
 					restoreProj()
 				}
-				if lastErr != nil {
-					die(lastErr.Error())
-				}
-				die("layout-apply: failed to allocate network for overlay " + ovProj)
+				die(err.Error())
 			}
 			if restoreEnv != nil {
 				restoreEnv()
@@ -1253,10 +1282,7 @@ func main() {
 				if strings.TrimSpace(w.Project) != "" {
 					winProj = w.Project
 				}
-				fargs, err := compose.Files(paths, winProj, profile)
-				if err != nil {
-					die(err.Error())
-				}
+				fargs := resolveWindowFiles(winProj)
 				dest := layout.CleanPath(winProj, w.Path)
 				svc := w.Service
 				if strings.TrimSpace(svc) == "" {
@@ -1297,10 +1323,7 @@ func main() {
 				if strings.TrimSpace(w.Project) != "" {
 					winProj = w.Project
 				}
-				fargs, err := compose.Files(paths, winProj, profile)
-				if err != nil {
-					die(err.Error())
-				}
+				fargs := resolveWindowFiles(winProj)
 				dest := layout.CleanPath(winProj, w.Path)
 				svc := w.Service
 				if strings.TrimSpace(svc) == "" {
@@ -1338,7 +1361,6 @@ func main() {
 			}
 		}
 	case "layout-validate":
-		mustProject(project)
 		layoutPath := ""
 		for i := 0; i < len(sub); i++ {
 			if sub[i] == "--file" && i+1 < len(sub) {
@@ -2587,7 +2609,12 @@ func mustProject(p string) {
 	}
 }
 
-func skipTmux() bool { return os.Getenv("DEVKIT_NO_TMUX") == "1" }
+func skipTmux() bool {
+	if tmuxForceOverride {
+		return false
+	}
+	return os.Getenv("DEVKIT_NO_TMUX") == "1"
+}
 func mustAtoi(s string) int {
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1 {
@@ -2597,7 +2624,13 @@ func mustAtoi(s string) int {
 }
 
 // defaultSessionName chooses a stable default tmux session per overlay.
-func defaultSessionName(project string) string { return "devkit:" + project }
+func defaultSessionName(project string) string {
+	p := strings.TrimSpace(project)
+	if p == "" {
+		p = "layout"
+	}
+	return "devkit:" + p
+}
 
 // hasTmuxSession returns true if the tmux session exists.
 func hasTmuxSession(session string) bool {

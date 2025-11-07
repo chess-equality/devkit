@@ -16,16 +16,20 @@ Useful commands
 export DEVKIT_ENABLE_RUNTIME_CONFIG=1
 export DEVKIT_WORKTREE_ROOT="$HOME/devkit-worktrees"
 mkdir -p "$DEVKIT_WORKTREE_ROOT"
-devkit/kit/scripts/devkit -p codex layout-apply --file devkit/kit/examples/orchestration-codex8-worktrees.yaml
+devkit/kit/scripts/devkit layout-apply \
+  --file devkit/kit/examples/orchestration-codex8-worktrees.yaml \
+  --tmux --attach
 ```
 
-Use `COMPOSE_PROJECT_NAME=devkit-codex8 devkit/kit/scripts/devkit -p codex down` when you're done.
+`--tmux` forces window creation even if `DEVKIT_NO_TMUX=1`, and `--attach` drops you straight into the `devkit_codex8` session. Because the layout lists `project: dev-all`, no `-p` flag is required; if you omit `project` fields in your own layout, pass `-p <overlay>` so the CLI knows which stack to reuse. Use `COMPOSE_PROJECT_NAME=devkit-codex8 devkit/kit/scripts/devkit -p codex down` when you're done.
 
 ### Automated check
-`kit/tests/codex-layout-verify.sh` runs the full workflow (layout apply, tmux session creation, Codex “ok”, `git pull`, tmux/compose teardown). Example:
+`kit/tests/codex-layout-verify.sh` runs the full workflow (layout apply, tmux session creation, Codex “ok”, `git pull`, tmux/compose teardown) and auto-detects the correct `scripts/devkit` shim. Example:
 
 ```bash
 DEVKIT_ENABLE_RUNTIME_CONFIG=1 \
 DEVKIT_WORKTREE_ROOT=$HOME/devkit-worktrees \
 devkit/kit/tests/codex-layout-verify.sh
 ```
+
+The script resolves the layout path, forces tmux, verifies the eight codex windows exist, runs `codexw exec --skip-git-repo-check "reply with: ok"`, performs `git fetch && git pull`, and tears the stack down so the next run starts clean.

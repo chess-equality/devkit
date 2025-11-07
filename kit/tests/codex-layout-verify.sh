@@ -16,7 +16,39 @@ if [[ -z "${DEVKIT_WORKTREE_ROOT:-}" ]]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+WORKSPACE_ROOT="$(cd "$ROOT/.." && pwd -P)"
+
+LAYOUT_PATH="$LAYOUT_FILE"
+if [[ "$LAYOUT_PATH" != /* ]]; then
+  if [[ -f "$WORKSPACE_ROOT/$LAYOUT_PATH" ]]; then
+    LAYOUT_PATH="$WORKSPACE_ROOT/$LAYOUT_PATH"
+  elif [[ -f "$ROOT/$LAYOUT_PATH" ]]; then
+    LAYOUT_PATH="$ROOT/$LAYOUT_PATH"
+  fi
+fi
+if [[ ! -f "$LAYOUT_PATH" ]]; then
+  echo "layout file $LAYOUT_FILE not found" >&2
+  exit 1
+fi
+LAYOUT_FILE="$LAYOUT_PATH"
+
 pushd "$ROOT" >/dev/null
+
+if [[ -z "${DEVKIT_SHIM:-}" ]]; then
+  for candidate in \
+    "$ROOT/../scripts/devkit" \
+    "$ROOT/scripts/devkit" \
+    "$ROOT/kit/scripts/devkit"; do
+    if [[ -x "$candidate" ]]; then
+      DEVKIT_SHIM="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "${DEVKIT_SHIM:-}" ]]; then
+  echo "unable to locate scripts/devkit shim" >&2
+  exit 1
+fi
 
 export DEVKIT_DEBUG=${DEVKIT_DEBUG:-0}
 unset DEVKIT_NO_TMUX || true
@@ -24,7 +56,7 @@ unset DEVKIT_NO_TMUX || true
 tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
 
 echo "[verify] applying layout..."
-DEVKIT_DEBUG=$DEVKIT_DEBUG scripts/devkit -p "$PROJECT" layout-apply --tmux --file "$LAYOUT_FILE"
+DEVKIT_DEBUG=$DEVKIT_DEBUG "$DEVKIT_SHIM" -p "$PROJECT" layout-apply --tmux --file "$LAYOUT_FILE"
 
 echo "[verify] checking tmux session..."
 tmux has-session -t "$SESSION_NAME"
@@ -41,7 +73,7 @@ docker exec "$COMPOSE_NAME-dev-agent-1" bash -lc 'cd /workspaces/dev/ouroboros-i
 
 echo "[verify] cleaning up..."
 tmux kill-session -t "$SESSION_NAME"
-COMPOSE_PROJECT_NAME="$COMPOSE_NAME" DEVKIT_WORKTREE_ROOT="$DEVKIT_WORKTREE_ROOT" DEVKIT_WORKTREE_CONTAINER_ROOT=/worktrees scripts/devkit -p "$PROJECT" down
+COMPOSE_PROJECT_NAME="$COMPOSE_NAME" DEVKIT_WORKTREE_ROOT="$DEVKIT_WORKTREE_ROOT" DEVKIT_WORKTREE_CONTAINER_ROOT=/worktrees "$DEVKIT_SHIM" -p "$PROJECT" down
 
 echo "[verify] codex layout OK"
 

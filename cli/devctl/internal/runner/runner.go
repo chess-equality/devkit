@@ -66,10 +66,17 @@ func ComposeWithProject(dry bool, projectName string, fileArgs []string, args ..
 		fmt.Fprintln(os.Stderr, "+ docker "+strings.Join(all, " "))
 		return nil
 	}
-	res := execx.RunCtx(ctx, "docker", all...)
+	res, output := execx.RunCtxWithOutput(ctx, "docker", all...)
 	if res.Code != 0 {
+		msg := strings.TrimSpace(output)
 		if res.Err != nil {
+			if msg != "" {
+				return fmt.Errorf("%w: %s", res.Err, msg)
+			}
 			return res.Err
+		}
+		if msg != "" {
+			return fmt.Errorf("docker compose exited with code %d: %s", res.Code, msg)
 		}
 		return fmt.Errorf("docker compose exited with code %d", res.Code)
 	}

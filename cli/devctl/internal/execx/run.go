@@ -1,6 +1,7 @@
 package execx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -39,6 +40,32 @@ func RunCtx(ctx context.Context, name string, args ...string) Result {
 		}
 	}
 	return Result{Code: code, Err: err}
+}
+
+// RunCtxWithOutput mirrors RunCtx but captures combined stdout/stderr while still streaming to the host.
+func RunCtxWithOutput(ctx context.Context, name string, args ...string) (Result, string) {
+	if os.Getenv("DEVKIT_DEBUG") == "1" {
+		fmt.Fprintf(os.Stderr, "+ %s\n", strings.Join(append([]string{name}, args...), " "))
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = os.Stdin
+	var buf bytes.Buffer
+	stdout := io.MultiWriter(os.Stdout, &buf)
+	stderr := io.MultiWriter(os.Stderr, &buf)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if ctx.Err() == context.DeadlineExceeded {
+			code = 124
+		} else {
+			code = 1
+		}
+	}
+	return Result{Code: code, Err: err}, buf.String()
 }
 
 func WithTimeout(d time.Duration) (context.Context, context.CancelFunc) {

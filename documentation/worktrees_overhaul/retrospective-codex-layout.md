@@ -19,19 +19,20 @@
 - The layout overlay resolver still honors the CLI `-p` value (“codex”) instead of the YAML entry (“dev-all”), so we never switch compose stacks.
 - `--attach` runs even when stdout isn’t a TTY, causing immediate failure in headless contexts (CI, agent shells).
 
-## Next Steps for the On-Call Agent
-1. **Move subnet retries earlier.**
-   - Detect Docker errors during `compose up` *and* during the subsequent seeding commands. If any step hits `Address already in use`, tear everything down, mark the CIDR as bad, and retry with a fresh one before continuing.
-2. **Honor layout overlay projects.**
-   - When `layout.yaml` specifies `project: dev-all`, resolve `dev-all`’s `devkit.yaml` / compose override even if the CLI was invoked with `-p codex`.
-3. **Graceful tmux attach.**
-   - Skip `--attach` automatically when `DEVKIT_NO_TMUX=1` or stdout isn’t a TTY; print a notice instead of failing.
-4. **Add regression coverage.**
-   - Write a Go test (or script) that:
-     1. Runs `layout-apply` on `orchestration-codex8-worktrees.yaml`.
-     2. Ensures eight containers stay up.
-     3. Confirms `codexw exec "reply with: ok"` works in at least one container.
-     4. Tears the stack down cleanly.
+## Current Status (Dec 2025)
+- Layout retries now wrap the entire bring-up: `withNetwork` restarts CIDR selection and `docker compose up` whenever Docker reports "Address already in use" and only reserves the subnet once the stack is healthy.
+- Layout entries own their compose args end-to-end, so YAML requesting `project: dev-all` behaves the same regardless of which overlay name was passed to `-p`.
+- `--tmux` force-overrides `DEVKIT_NO_TMUX`, while `--attach` still skips non-TTY invocations. No more manual env flipping is required to see the codex windows.
+- `kit/tests/codex-layout-verify.sh` is the regression test: it finds the correct `scripts/devkit` shim, resolves the layout file, forces tmux, asks Codex to reply "ok", runs `git fetch && git pull`, and tears the stack down. Run it with:
+  ```bash
+  DEVKIT_ENABLE_RUNTIME_CONFIG=1 \
+  DEVKIT_WORKTREE_ROOT=$HOME/devkit-worktrees \
+  devkit/kit/tests/codex-layout-verify.sh
+  ```
+
+Keep that verifier green before shipping binaries or docs so networking, tmux, and credential regressions are caught immediately.
+
+`layout-apply` / `layout-validate` no longer require `-p`; as long as the YAML names its overlays/windows explicitly, you can omit the flag entirely. If you rely on the CLI default overlay (windows without `project:`) keep passing `-p <overlay>` so the validator knows which compose stack to assume.
 
 ## Useful Artifacts
 - Failure log (captured from customer run): `/tmp/layout.log` shows only “attempt 1” and no fallback CIDR.
