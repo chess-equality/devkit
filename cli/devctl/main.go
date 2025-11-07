@@ -809,6 +809,7 @@ Commands:
 Flags:
   -p, --project   overlay project name (required for most)
   --profile       comma-separated: hardened,dns,envoy (default: dns)
+  --tmux          force tmux integration even if DEVKIT_NO_TMUX=1
 
 Environment:
   DEVKIT_DEBUG=1  print executed commands
@@ -820,6 +821,7 @@ func main() {
 	var profile string
 	var dryRun bool
 	var noTmux bool
+	var forceTmux bool
 	var noSeed bool
 	var reSeed bool
 
@@ -847,6 +849,8 @@ func main() {
 			dryRun = true
 		case "--no-tmux":
 			noTmux = true
+		case "--tmux":
+			forceTmux = true
 		case "--no-seed":
 			noSeed = true
 		case "--reseed":
@@ -897,6 +901,9 @@ func main() {
 		cfgDir = overlayDir
 	}
 	applyOverlayEnv(overlayCfg, cfgDir, paths.Root)
+	if forceTmux {
+		_ = os.Unsetenv("DEVKIT_NO_TMUX")
+	}
 	files, err := compose.Files(paths, project, profile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
