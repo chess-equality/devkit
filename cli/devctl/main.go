@@ -1017,38 +1017,73 @@ func main() {
 		if err != nil {
 			die(err.Error())
 		}
+		type overlayRun struct {
+			Project     string
+			Service     string
+			Count       int
+			Build       bool
+			Worktrees   *layout.Worktrees
+			Network     *layout.Network
+			ComposeProj string
+			FileArgs    []string
+			RestoreEnv  func()
+		}
+		var overlayRuns []overlayRun
 		projMap := map[string]string{}
 		for _, ov := range lf.Overlays {
 			ovProj := strings.TrimSpace(ov.Project)
 			if ovProj == "" {
 				continue
 			}
-			projMap[ovProj] = resolveComposeProjectName(ovProj, ov.ComposeProject)
+			ovCfg, ovDir, ovErr := config.ReadAll(paths.OverlayPaths, ovProj)
+			if ovErr != nil {
+				die(ovErr.Error())
+			}
+			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
+			if err != nil {
+				die(err.Error())
+			}
+			pname := resolveComposeProjectName(ovProj, ov.ComposeProject)
+			projMap[ovProj] = pname
+			run := overlayRun{
+				Project:     ovProj,
+				Service:     ov.Service,
+				Count:       ov.Count,
+				Build:       ov.Build,
+				Worktrees:   ov.Worktrees,
+				Network:     ov.Network,
+				ComposeProj: pname,
+				FileArgs:    filesOv,
+				RestoreEnv:  pushOverlayEnv(ovCfg, ovDir, paths.Root, true),
+			}
+			if os.Getenv("DEVKIT_DEBUG") == "1" {
+				fmt.Fprintf(os.Stderr, "[layout] register overlay %s compose_project=%s profiles=%s\n", run.Project, run.ComposeProj, strings.TrimSpace(ov.Profiles))
+			}
+			overlayRuns = append(overlayRuns, run)
 		}
 		allocatedCIDRs := map[string]bool{}
 		// 0) Optional: prepare host-side worktrees for dev-all overlays that request it
-		for _, ov := range lf.Overlays {
-			if strings.TrimSpace(ov.Project) != "dev-all" {
+		for _, run := range overlayRuns {
+			if strings.TrimSpace(run.Project) != "dev-all" {
 				continue
 			}
-			if ov.Worktrees == nil {
+			if run.Worktrees == nil {
 				continue
 			}
-			repo := strings.TrimSpace(ov.Worktrees.Repo)
+			repo := strings.TrimSpace(run.Worktrees.Repo)
 			if repo == "" {
 				continue
 			}
-			restoreProj := withComposeProject(projMap[strings.TrimSpace(ov.Project)])
-			// Determine count/base/branch from worktrees block or fall back to overlay defaults
-			count := ov.Worktrees.Count
+			restoreProj := withComposeProject(run.ComposeProj)
+			count := run.Worktrees.Count
 			if count <= 0 {
-				count = ov.Count
+				count = run.Count
 			}
 			if count <= 0 {
 				count = 1
 			}
-			baseBranch := strings.TrimSpace(ov.Worktrees.BaseBranch)
-			branchPrefix := strings.TrimSpace(ov.Worktrees.BranchPrefix)
+			baseBranch := strings.TrimSpace(run.Worktrees.BaseBranch)
+			branchPrefix := strings.TrimSpace(run.Worktrees.BranchPrefix)
 			if baseBranch == "" || branchPrefix == "" {
 				if cfg, _, er := config.ReadAll(paths.OverlayPaths, "dev-all"); er == nil {
 					if baseBranch == "" {
@@ -1080,42 +1115,28 @@ func main() {
 		cleanedProjects := map[string]bool{}
 		// 1) Bring up overlays with their own profiles and project names
 		tracker := agentexec.NewSeedTracker()
-		for _, ov := range lf.Overlays {
-			ovProj := strings.TrimSpace(ov.Project)
-			if ovProj == "" {
-				continue
-			}
-			ovCfg, ovDir, ovErr := config.ReadAll(paths.OverlayPaths, ovProj)
-			if ovErr != nil {
-				die(ovErr.Error())
-			}
-			restoreEnv := pushOverlayEnv(ovCfg, ovDir, paths.Root, true)
-			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
-			if err != nil {
-				if restoreEnv != nil {
-					restoreEnv()
-				}
-				die(err.Error())
-			}
-			svc := ov.Service
+		for _, run := range overlayRuns {
+			ovProj := run.Project
+			restoreEnv := run.RestoreEnv
+			svc := run.Service
 			if strings.TrimSpace(svc) == "" {
 				svc = "dev-agent"
 			}
-			cnt := ov.Count
+			cnt := run.Count
 			if cnt < 1 {
 				cnt = 1
 			}
-			pname := projMap[ovProj]
+			pname := run.ComposeProj
 			restoreProj := withComposeProject(pname)
 			if !cleanedProjects[pname] {
-				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
+				composecmd.CleanupSharedInfra(dryRun, pname, run.FileArgs)
 				cleanedProjects[pname] = true
 			}
 			tried := map[string]bool{}
 			var lastErr error
 			success := false
 			for attempt := 0; attempt < 64; attempt++ {
-				cidr, dns, pickErr := pickOverlaySubnet(ov.Network, tried, allocatedCIDRs)
+				cidr, dns, pickErr := pickOverlaySubnet(run.Network, tried, allocatedCIDRs)
 				if pickErr != nil {
 					lastErr = pickErr
 					break
@@ -1124,13 +1145,13 @@ func main() {
 				restoreNet := pushNetworkEnv(cidr, dns)
 				prepareComposeProjectVolumes(dryRun, pname)
 				args := []string{"up", "-d", "--scale", fmt.Sprintf("%s=%d", svc, cnt)}
-				if ov.Build {
+				if run.Build {
 					args = append(args, "--build")
 				}
 				if os.Getenv("DEVKIT_DEBUG") == "1" {
 					fmt.Fprintf(os.Stderr, "[layout] overlay %s using subnet %s dns %s (attempt %d)\n", ovProj, cidr, dns, attempt+1)
 				}
-				err := runner.ComposeWithProject(dryRun, pname, filesOv, args...)
+				err := runner.ComposeWithProject(dryRun, pname, run.FileArgs, args...)
 				restoreNet()
 				if err == nil {
 					allocatedCIDRs[cidr] = true
@@ -1138,7 +1159,7 @@ func main() {
 					break
 				}
 				lastErr = err
-				composecmd.CleanupSharedInfra(dryRun, pname, filesOv)
+				composecmd.CleanupSharedInfra(dryRun, pname, run.FileArgs)
 				if !isNetworkConflictErr(err) {
 					break
 				}
@@ -1207,104 +1228,106 @@ func main() {
 			}
 		}
 		// 2) Apply windows into tmux using the composed project names
-		sessName := strings.TrimSpace(lf.Session)
-		if sessName == "" {
-			sessName = defaultSessionName(project)
-		}
-		createdSession := false
-		if !hasTmuxSession(sessName) {
-			if len(lf.Windows) == 0 {
-				die("no windows to create in session")
+		if skipTmux() {
+			fmt.Fprintln(os.Stderr, "[layout] tmux skipped via DEVKIT_NO_TMUX")
+		} else {
+			sessName := strings.TrimSpace(lf.Session)
+			if sessName == "" {
+				sessName = defaultSessionName(project)
 			}
-			w := lf.Windows[0]
-			idx := fmt.Sprintf("%d", w.Index)
-			winProj := project
-			if strings.TrimSpace(w.Project) != "" {
-				winProj = w.Project
+			createdSession := false
+			if !hasTmuxSession(sessName) {
+				if len(lf.Windows) == 0 {
+					die("no windows to create in session")
+				}
+				w := lf.Windows[0]
+				idx := fmt.Sprintf("%d", w.Index)
+				winProj := project
+				if strings.TrimSpace(w.Project) != "" {
+					winProj = w.Project
+				}
+				fargs, err := compose.Files(paths, winProj, profile)
+				if err != nil {
+					die(err.Error())
+				}
+				dest := layout.CleanPath(winProj, w.Path)
+				svc := w.Service
+				if strings.TrimSpace(svc) == "" {
+					svc = "dev-agent"
+				}
+				name := w.Name
+				if strings.TrimSpace(name) == "" {
+					name = "agent-" + idx
+				}
+				pname := projMap[winProj]
+				if strings.TrimSpace(pname) == "" {
+					pname = agentexec.ComposeProjectName(winProj)
+				}
+				idxInt, _ := strconv.Atoi(idx)
+				if idxInt < 1 {
+					idxInt = 1
+				}
+				containerName := ""
+				if !dryRun {
+					containerName = agentexec.ResolveContainerName(pname, svc, idxInt)
+				}
+				cmdStr, err := buildWindowCmdForProject(fargs, winProj, idx, dest, svc, pname, containerName, tracker)
+				if err != nil {
+					die(err.Error())
+				}
+				runner.Host(dryRun, "tmux", tmuxutil.NewSession(sessName, cmdStr)...)
+				runner.Host(dryRun, "tmux", tmuxutil.RenameWindow(sessName+":0", name)...)
+				createdSession = true
 			}
-			fargs, err := compose.Files(paths, winProj, profile)
-			if err != nil {
-				die(err.Error())
+			start := 0
+			if createdSession {
+				start = 1
 			}
-			dest := layout.CleanPath(winProj, w.Path)
-			svc := w.Service
-			if strings.TrimSpace(svc) == "" {
-				svc = "dev-agent"
+			for i := start; i < len(lf.Windows); i++ {
+				w := lf.Windows[i]
+				idx := fmt.Sprintf("%d", w.Index)
+				winProj := project
+				if strings.TrimSpace(w.Project) != "" {
+					winProj = w.Project
+				}
+				fargs, err := compose.Files(paths, winProj, profile)
+				if err != nil {
+					die(err.Error())
+				}
+				dest := layout.CleanPath(winProj, w.Path)
+				svc := w.Service
+				if strings.TrimSpace(svc) == "" {
+					svc = "dev-agent"
+				}
+				name := w.Name
+				if strings.TrimSpace(name) == "" {
+					name = "agent-" + idx
+				}
+				pname := projMap[winProj]
+				if strings.TrimSpace(pname) == "" {
+					pname = agentexec.ComposeProjectName(winProj)
+				}
+				idxInt, _ := strconv.Atoi(idx)
+				if idxInt < 1 {
+					idxInt = 1
+				}
+				containerName := ""
+				if !dryRun {
+					containerName = agentexec.ResolveContainerName(pname, svc, idxInt)
+				}
+				cmdStr, err := buildWindowCmdForProject(fargs, winProj, idx, dest, svc, pname, containerName, tracker)
+				if err != nil {
+					die(err.Error())
+				}
+				runner.Host(dryRun, "tmux", tmuxutil.NewWindow(sessName, name, cmdStr)...)
 			}
-			name := w.Name
-			if strings.TrimSpace(name) == "" {
-				name = "agent-" + idx
-			}
-			pname := projMap[winProj]
-			if strings.TrimSpace(pname) == "" {
-				pname = agentexec.ComposeProjectName(winProj)
-			}
-			idxInt, _ := strconv.Atoi(idx)
-			if idxInt < 1 {
-				idxInt = 1
-			}
-			containerName := ""
-			if !dryRun {
-				containerName = agentexec.ResolveContainerName(pname, svc, idxInt)
-			}
-			cmdStr, err := buildWindowCmdForProject(fargs, winProj, idx, dest, svc, pname, containerName, tracker)
-			if err != nil {
-				die(err.Error())
-			}
-			runner.Host(dryRun, "tmux", tmuxutil.NewSession(sessName, cmdStr)...)
-			runner.Host(dryRun, "tmux", tmuxutil.RenameWindow(sessName+":0", name)...)
-			createdSession = true
-		}
-		start := 0
-		if createdSession {
-			start = 1
-		}
-		for i := start; i < len(lf.Windows); i++ {
-			w := lf.Windows[i]
-			idx := fmt.Sprintf("%d", w.Index)
-			winProj := project
-			if strings.TrimSpace(w.Project) != "" {
-				winProj = w.Project
-			}
-			fargs, err := compose.Files(paths, winProj, profile)
-			if err != nil {
-				die(err.Error())
-			}
-			dest := layout.CleanPath(winProj, w.Path)
-			svc := w.Service
-			if strings.TrimSpace(svc) == "" {
-				svc = "dev-agent"
-			}
-			name := w.Name
-			if strings.TrimSpace(name) == "" {
-				name = "agent-" + idx
-			}
-			pname := projMap[winProj]
-			if strings.TrimSpace(pname) == "" {
-				pname = agentexec.ComposeProjectName(winProj)
-			}
-			idxInt, _ := strconv.Atoi(idx)
-			if idxInt < 1 {
-				idxInt = 1
-			}
-			containerName := ""
-			if !dryRun {
-				containerName = agentexec.ResolveContainerName(pname, svc, idxInt)
-			}
-			cmdStr, err := buildWindowCmdForProject(fargs, winProj, idx, dest, svc, pname, containerName, tracker)
-			if err != nil {
-				die(err.Error())
-			}
-			runner.Host(dryRun, "tmux", tmuxutil.NewWindow(sessName, name, cmdStr)...)
-		}
-		if doAttach {
-			switch {
-			case skipTmux():
-				fmt.Fprintln(os.Stderr, "layout-apply: --attach skipped because DEVKIT_NO_TMUX=1")
-			case !stdoutIsTTY():
-				fmt.Fprintln(os.Stderr, "layout-apply: --attach skipped because stdout is not a TTY")
-			default:
-				runner.HostInteractive(dryRun, "tmux", tmuxutil.Attach(sessName)...)
+			if doAttach {
+				switch {
+				case !stdoutIsTTY():
+					fmt.Fprintln(os.Stderr, "layout-apply: --attach skipped because stdout is not a TTY")
+				default:
+					runner.HostInteractive(dryRun, "tmux", tmuxutil.Attach(sessName)...)
+				}
 			}
 		}
 	case "layout-validate":
