@@ -53,5 +53,5 @@
 - ✅ Minimal compose and overlay assets live under `testing/runtime/` (image, compose stubs, codex shim, proxy stubs) to keep runtime stacks lightweight and isolated.
 - ✅ Runtime integration tests (`doctor-runtime`, `layout-apply`, `worktrees-status/sync`, `verify`) reside in `cli/devctl/integration/runtime`.
 - ✅ `make test-runtime` now runs the suite automatically; CI invokes it on every change, and developers can run it locally with the same command.
-- ✅ `CleanupSharedInfra` honors `DEVKIT_SKIP_SHARED_CLEANUP=1`, preventing runtime tests from tearing down the globally-named proxy containers (`devkit_tinyproxy`, `devkit_dns`). The fixture exports this guard by default.
+- ✅ `CleanupSharedInfra` honors `DEVKIT_SKIP_SHARED_CLEANUP=1`, preventing runtime tests from tearing down the legacy globally-named proxy containers (`devkit_tinyproxy`, `devkit_dns`). The fixture exports this guard by default.
 - ✅ Dedicated proxy stubs in `testing/runtime/kit/` use compose-project-scoped container names, so even if cleanup runs, it only touches the isolated test stack.

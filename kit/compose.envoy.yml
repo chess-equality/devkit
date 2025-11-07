@@ -3,7 +3,6 @@
 services:
   envoy:
     image: envoyproxy/envoy:v1.31.3
-    container_name: devkit_envoy
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     volumes:
       - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
@@ -18,7 +17,6 @@ services:
 
   envoy-sni:
     image: envoyproxy/envoy:v1.31.3
-    container_name: devkit_envoy_sni
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     volumes:
       - ./envoy/envoy_sni.yaml:/etc/envoy/envoy.yaml:ro

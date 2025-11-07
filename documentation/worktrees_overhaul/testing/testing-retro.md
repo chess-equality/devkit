@@ -6,7 +6,7 @@
 - Detected when the user reported loss of network; investigated `docker network`/`docker ps` to confirm devkit agents were still running but proxies were missing.
 
 ## Remediation
-- Restarted `devkit_dns` and `devkit_tinyproxy` in place (`docker compose ... up -d tinyproxy dns`) without touching the running dev agents.
+- Restarted legacy `devkit_dns` and `devkit_tinyproxy` containers in place (`docker compose ... up -d tinyproxy dns`) without touching the running dev agents.
 - Documented cleanup commands and the temp networks created by the tests.
 
 ## Lessons Learned
@@ -30,7 +30,7 @@
 
 ## Remediation
 - Manually restarted proxies with `docker compose -p devkit-ouro4 -f kit/compose.yml -f kit/compose.dns.yml -f overlays/dev-all/compose.override.yml up -d tinyproxy dns`.
-- Verified `devkit_tinyproxy` health and restored egress from an affected agent (`curl https://example.com`).
+- Verified the legacy `devkit_tinyproxy` container's health and restored egress from an affected agent (`curl https://example.com`).
 
 ## Lessons Learned
 - Isolation must account for container names, not just compose project names. Shared helper cleanup routines can still target global resources.

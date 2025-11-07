@@ -1883,8 +1883,8 @@ exit 0`, home, home, home, home, home)
 		if !skipTmux() {
 			runner.HostBestEffort(dryRun, "tmux", "kill-session", "-t", "devkit-worktrees")
 		}
-		runner.HostBestEffort(dryRun, "docker", "rm", "-f", "devkit_envoy", "devkit_envoy_sni", "devkit_dns", "devkit_tinyproxy")
-		runner.HostBestEffort(dryRun, "docker", "network", "rm", "devkit_dev-internal", "devkit_dev-egress")
+		removeLegacySharedContainers(dryRun)
+		removeProjectNetworks(dryRun, composeProjectName(project))
 		// start up with all profiles
 		runner.Compose(dryRun, all, "up", "-d", "--scale", fmt.Sprintf("dev-agent=%d", n))
 		// Seeding: pool mode (if configured and slots available) else fallback to host seeding
@@ -1960,8 +1960,8 @@ exit 0`, home, home, home, home, home)
 		if !skipTmux() {
 			runner.HostBestEffort(dryRun, "tmux", "kill-session", "-t", "devkit-worktrees")
 		}
-		runner.HostBestEffort(dryRun, "docker", "rm", "-f", "devkit_envoy", "devkit_envoy_sni", "devkit_dns", "devkit_tinyproxy")
-		runner.HostBestEffort(dryRun, "docker", "network", "rm", "devkit_dev-internal", "devkit_dev-egress")
+		removeLegacySharedContainers(dryRun)
+		removeProjectNetworks(dryRun, composeProjectName(project))
 		// include pool compose file in reset as well
 		if pconf.Mode == poolcfg.CredModePool {
 			all = append(all, "-f", filepath.Join(paths.Kit, "compose.pool.yml"))
@@ -2297,16 +2297,16 @@ exit 0`, home, home, home, home, home)
 		repo := sub[0]
 		n := mustAtoi(sub[1])
 		// Ensure any stale networks/containers are removed so the picked subnet/IP apply cleanly
-		// (prevents mismatch when an existing devkit_dev-internal has different IPAM than our choice)
+		// (prevents mismatches when a previous compose project network used different IPAM settings)
 		// 1) Best-effort compose down with all profiles for this project to stop attached containers
 		all := compose.AllProfilesFiles(paths, project)
 		runner.Compose(dryRun, all, "down")
 		// 2) Remove known sidecars and any lingering dev-agents
-		runner.HostBestEffort(dryRun, "docker", "rm", "-f", "devkit_envoy", "devkit_envoy_sni", "devkit_dns", "devkit_tinyproxy")
+		removeLegacySharedContainers(dryRun)
 		// Remove any devkit-dev-agent-* containers that may still be around and attached
 		runner.HostBestEffort(dryRun, "bash", "-lc", "docker ps -aq --filter name='^devkit-dev-agent-' | xargs -r docker rm -f")
 		// 3) Now remove networks (will succeed once no active endpoints remain)
-		runner.HostBestEffort(dryRun, "docker", "network", "rm", "devkit_dev-internal", "devkit_dev-egress")
+		removeProjectNetworks(dryRun, composeProjectName(project))
 		// Ensure worktrees are present and configured (idempotent)
 		if err := wtx.Setup(paths.Root, repo, n, "main", "agent", dryRun); err != nil {
 			die(err.Error())
@@ -2606,6 +2606,21 @@ func die(msg string) { fmt.Fprintln(os.Stderr, msg); os.Exit(2) }
 func mustProject(p string) {
 	if strings.TrimSpace(p) == "" {
 		die("-p <project> is required")
+	}
+}
+
+func removeLegacySharedContainers(dry bool) {
+	runner.HostBestEffort(dry, "docker", "rm", "-f", "devkit_envoy", "devkit_envoy_sni", "devkit_dns", "devkit_tinyproxy")
+}
+
+func removeProjectNetworks(dry bool, composeProject string) {
+	proj := strings.TrimSpace(composeProject)
+	if proj == "" {
+		proj = "devkit"
+	}
+	nets := []string{fmt.Sprintf("%s_dev-internal", proj), fmt.Sprintf("%s_dev-egress", proj)}
+	for _, net := range nets {
+		runner.HostBestEffort(dry, "docker", "network", "rm", net)
 	}
 }
 

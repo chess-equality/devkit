@@ -46,32 +46,12 @@ func CleanupSharedInfra(dry bool, projectName string, fileArgs []string) {
 	composeArgs = append(composeArgs, "down", "--remove-orphans")
 	runner.HostBestEffort(dry, "docker", composeArgs...)
 
-	// Shared container names across overlays (tinyproxy/dns/envoy) need explicit cleanup,
-	// but allow callers (tests) to opt out by exporting DEVKIT_SKIP_SHARED_CLEANUP=1.
+	// Shared container names across overlays (tinyproxy/dns/envoy) previously used fixed names.
+	// Keep removing any lingering legacy containers unless tests opt out via DEVKIT_SKIP_SHARED_CLEANUP.
 	if os.Getenv("DEVKIT_SKIP_SHARED_CLEANUP") != "1" {
-		staleContainers := []string{"devkit_tinyproxy", "devkit_dns", "devkit_envoy", "devkit_envoy_sni"}
-		filtered := make([]string, 0, len(staleContainers))
-		for _, name := range staleContainers {
-			if containerExists(name) {
-				filtered = append(filtered, name)
-			}
-		}
-		if len(filtered) > 0 {
-			rmArgs := append([]string{"rm", "-f"}, filtered...)
-			runner.HostBestEffort(dry, "docker", rmArgs...)
-		}
+		removeLegacyContainers(dry)
 	}
-
-	proj := strings.TrimSpace(projectName)
-	if proj == "" {
-		proj = "devkit"
-	}
-	nets := []string{fmt.Sprintf("%s_dev-internal", proj), fmt.Sprintf("%s_dev-egress", proj)}
-	for _, net := range nets {
-		if networkExists(net) {
-			runner.HostBestEffort(dry, "docker", "network", "rm", net)
-		}
-	}
+	removeNetworksByProjectName(dry, projectName)
 }
 
 func containerExists(name string) bool {
@@ -131,4 +111,32 @@ func handleLogs(ctx *cmdregistry.Context) error {
 	args := append([]string{"logs"}, ctx.Args...)
 	runner.Compose(ctx.DryRun, ctx.Files, args...)
 	return nil
+}
+
+func removeLegacyContainers(dry bool) {
+	staleContainers := []string{"devkit_tinyproxy", "devkit_dns", "devkit_envoy", "devkit_envoy_sni"}
+	filtered := make([]string, 0, len(staleContainers))
+	for _, name := range staleContainers {
+		if containerExists(name) {
+			filtered = append(filtered, name)
+		}
+	}
+	if len(filtered) == 0 {
+		return
+	}
+	rmArgs := append([]string{"rm", "-f"}, filtered...)
+	runner.HostBestEffort(dry, "docker", rmArgs...)
+}
+
+func removeNetworksByProjectName(dry bool, projectName string) {
+	proj := strings.TrimSpace(projectName)
+	if proj == "" {
+		proj = "devkit"
+	}
+	nets := []string{fmt.Sprintf("%s_dev-internal", proj), fmt.Sprintf("%s_dev-egress", proj)}
+	for _, net := range nets {
+		if networkExists(net) {
+			runner.HostBestEffort(dry, "docker", "network", "rm", net)
+		}
+	}
 }

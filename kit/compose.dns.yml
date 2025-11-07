@@ -9,7 +9,6 @@ services:
 
   dns:
     image: andyshinn/dnsmasq:latest
-    container_name: devkit_dns
     command: ["-k", "--conf-file=/etc/dnsmasq.d/dnsmasq.conf"]
     volumes:
       - ./dns/dnsmasq.conf:/etc/dnsmasq.d/dnsmasq.conf:ro

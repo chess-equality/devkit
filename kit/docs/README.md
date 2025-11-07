@@ -15,7 +15,7 @@ Dev Kit — Base Kit Details
   - `pool`: mounts a read‑only Codex credential pool into the agent (opt‑in).
 - Helper:
 - `devkit/kit/scripts/devkit -p <project> up|down|status|exec|logs|allow|warm|maintain|check-net` (wrapper in-repo; defaults to `-p codex`).
-  - `up` now performs a best-effort cleanup of any lingering `devkit_tinyproxy`/`devkit_dns` containers and the matching compose networks for the target project before recreating the stack.
+  - `up` now performs a best-effort cleanup of any lingering proxy/DNS containers for the target compose project before recreating the stack.
   - After the stack is healthy, each running `dev-agent` automatically receives a proxy-aware SSH config plus copies of your host keys (`~/.ssh/id_ed25519` / `id_rsa` / `known_hosts` when present) and a locked `core.sshCommand` pointing at that config. Fresh containers can immediately `git pull` via `ssh.github.com:443` without running `ssh-setup` manually; if you need to reseed later (or provide an alternate key path) you can still invoke `ssh-setup`.
   - If the CLI binary is missing, the wrapper runs `make -C devkit/cli/devctl build` automatically before executing commands.
 - Or call the binary directly after build: `devkit/kit/bin/devctl -p <project> ...`.

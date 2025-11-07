@@ -8,7 +8,6 @@ services:
       context: ..
       dockerfile: kit/proxy/tinyproxy.Dockerfile
     image: devkit/tinyproxy:dev
-    container_name: devkit_tinyproxy
     volumes:
       - ./proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
       - ./proxy/allowlist.txt:/etc/tinyproxy/allowlist.txt:ro
