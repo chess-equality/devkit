@@ -85,6 +85,7 @@ Developers can maintain per-host defaults outside the repo via `~/.config/devkit
 Further reading
 - Mixed overlays + frontend notes: overlay-front-end-notes.md
 - Postgres test broker plan: postgres-broker-plan.md — policy layer for Postgres-only Docker access.
+ - HTTPS ingress proposal: ingress-routing-plan.md — optional Caddy/Envoy routing for custom hostnames.
   - Credential pool (opt‑in; defaults off):
     - `DEVKIT_CODEX_CRED_MODE=host|pool` (default `host`)
     - `DEVKIT_CODEX_POOL_DIR=/abs/path/to/pool` (host path; required when `pool`)
