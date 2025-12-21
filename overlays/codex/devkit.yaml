@@ -8,6 +8,17 @@ defaults:
 env:
   AWS_PROFILE: codex
   PATH: /workspace/.local/bin:${PATH}
+ingress:
+  kind: caddy
+  config: ../../../ouroboros-ide/infra/Caddyfile
+  certs:
+    - path: ../../../ouroboros-ide/infra/ouroboros.test.pem
+    - path: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - path: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+    - path: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+  hosts:
+    - ouroboros.test
+    - webserver.ouroboros.test
 hooks:
   warm: |
     set -euo pipefail
