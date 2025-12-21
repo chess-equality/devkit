@@ -47,3 +47,47 @@ Future work can add `kind: envoy` with a structured routes file if teams prefer 
 2. Teach `devkit/cli/devctl` to read the block, validate referenced files, and render/launch the ingress service automatically.
 3. Update at least one overlay (ouroboros) to opt in, mount its repo-owned `infra/Caddyfile`, and copy the mkcert certs into the container so the Vite dev server and Scala backend are reachable via `https://ouroboros.test`.
 4. Add test coverage (likely a dry-run inspect) to ensure the CLI refuses to start when required cert files are missing or routes reference unknown services.
+
+## Engineering Plan for the Go CLI
+
+To keep the implementation predictable we’ll layer the ingress support on top of the existing compose/file plumbing:
+
+1. **Config schema (`cli/devctl/internal/config/overlay.go`)**
+   - Extend `OverlayConfig` with an `Ingress` struct:
+     ```yaml
+     ingress:
+       kind: caddy
+       config: infra/Caddyfile        # optional (mount verbatim)
+       routes:
+         - host: ouroboros.test
+           service: frontend
+           port: 4173
+       certs:
+         - path: infra/ouroboros.test.pem
+         - path: infra/ouroboros.test-key.pem
+       hosts:
+         - ouroboros.test
+         - webserver.ouroboros.test
+     ```
+   - Add YAML tags + validation (supported kinds, required fields per mode, existence checks for files referenced via `config`/`certs`).
+   - Unit tests covering parsing and validation.
+
+2. **Ingress rendering helper (`cli/devctl/internal/ingress`)**
+   - New package responsible for:
+     - Generating a compose fragment (service definition + volumes) for the ingress container.
+     - Rendering a Caddy config on the fly when `routes` is provided, or mounting a repo-supplied config file directly.
+     - Managing temporary files (e.g., under `$TMPDIR/devkit-ingress/<project>/`), returning the path so callers can append `-f <fragment.yml>`.
+   - Helper should accept the overlay directory/root so relative paths resolve correctly, and surface descriptive errors when inputs are invalid.
+
+3. **Compose builder integration (`cli/devctl/internal/compose/builder.go`)**
+   - After reading the overlay config, call the ingress helper when `cfg.Ingress` is non-nil.
+   - Append the generated compose fragment to the `-f` list returned by `Files`, ensuring every command automatically includes the ingress service.
+   - Track generated temp files so long-running commands (layout apply) can clean them up when finished.
+
+4. **Env plumbing (`main.go`)**
+   - Reuse `applyOverlayEnv` if the ingress block needs additional env vars (e.g., pointing at cert directories).
+   - Ensure `layout-apply` and other multi-overlay flows propagate the same env tweaks when temporarily switching overlays.
+
+5. **Docs/tests**
+   - Update `devkit/kit/docs/new-overlay-guide.md` with an “Ingress” subsection explaining the block and required cert/hosts steps.
+   - Add unit tests for the ingress package plus an integration-style test in `internal/compose/builder_test.go` asserting that `compose.Files` includes the extra fragment when `ingress` is set.
