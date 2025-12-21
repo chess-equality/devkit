@@ -125,7 +125,36 @@ Quoting pitfalls (important)
 - [ ] Dockerfile installs `netcat-openbsd` (for SSH proxy).
 - [ ] Container stays up (keepalive command) so tmux/exec can attach.
 - [ ] `ssh-setup` succeeds and `ssh-test` shows GitHub banner.
-- [ ] `repo-config-ssh` flips origin to SSH; `git pull` works inside the container.
+	- [ ] `repo-config-ssh` flips origin to SSH; `git pull` works inside the container.
 
 Example references
 - overlay-front-end-notes.md — a retrospective of issues and fixes when adding a Node frontend overlay.
+- HTTPS ingress routing: ingress-routing-plan.md — describes the ingress block schema plus the CLI implementation details.
+
+## Optional HTTPS Ingress Block
+
+Overlays that need browser-friendly HTTPS hosts (e.g., `ouroboros.test`) can opt into the ingress service by adding an `ingress` block to `devkit.yaml`:
+
+```
+ingress:
+  kind: caddy                 # currently only caddy is supported
+  config: infra/Caddyfile     # optional; mount verbatim when provided
+  routes:                     # alternatively, generate a config from host→service mappings
+    - host: ouroboros.test
+      service: frontend
+      port: 4173
+  certs:
+    - path: infra/ouroboros.test.pem
+    - path: infra/ouroboros.test-key.pem
+  hosts:
+    - ouroboros.test
+    - webserver.ouroboros.test
+  env:
+    CADDY_DEBUG: "1"
+```
+
+Notes:
+- When `config` is omitted, the CLI renders a simple Caddyfile from `routes` and mounts any listed `certs` into `/ingress/certs`. Without at least two cert entries the generated config falls back to `tls internal`.
+- The ingress container publishes `443` to `127.0.0.1:${DEVKIT_INGRESS_PORT:-8443}`; override `DEVKIT_INGRESS_PORT` before `up` if you need a different binding.
+- `hosts` simply documents the entries developers should add to `/etc/hosts`; ingestion logic does not edit host files automatically.
+- See `ingress-routing-plan.md` for the long-form proposal, constraints, and Go implementation plan.
