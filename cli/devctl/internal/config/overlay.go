@@ -35,6 +35,30 @@ type OverlayConfig struct {
 	Defaults  Defaults          `yaml:"defaults"`
 	// Default service name for this overlay (e.g., dev-agent, frontend)
 	Service string `yaml:"service"`
+	// Optional HTTPS ingress configuration for this overlay.
+	Ingress *IngressConfig `yaml:"ingress"`
+}
+
+// IngressConfig describes an optional HTTPS reverse proxy service attached to an overlay.
+type IngressConfig struct {
+	Kind   string            `yaml:"kind"`
+	Config string            `yaml:"config"`
+	Routes []IngressRoute    `yaml:"routes"`
+	Certs  []IngressCert     `yaml:"certs"`
+	Hosts  []string          `yaml:"hosts"`
+	Env    map[string]string `yaml:"env"`
+}
+
+// IngressRoute describes a single host → service:port mapping for generated configs.
+type IngressRoute struct {
+	Host    string `yaml:"host"`
+	Service string `yaml:"service"`
+	Port    int    `yaml:"port"`
+}
+
+// IngressCert points at a certificate or key file to mount into the ingress container.
+type IngressCert struct {
+	Path string `yaml:"path"`
 }
 
 // ReadHooks parses overlays/<project>/devkit.yaml and returns warm/maintain hooks.
