@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"devkit/cli/devctl/internal/config"
+	"devkit/cli/devctl/internal/ingress"
 )
 
 type Paths struct {
@@ -40,12 +41,15 @@ func Files(p Paths, project, profile string) ([]string, error) {
 	base := filepath.Join(p.Kit, "compose.yml")
 	args = append(args, "-f", base)
 
+	var overlayCfg config.OverlayConfig
+	var overlayDir string
+	var cfgErr error
 	if project != "" {
-		cfg, dir, err := config.ReadAll(p.OverlayPaths, project)
-		if err != nil {
-			return nil, err
+		overlayCfg, overlayDir, cfgErr = config.ReadAll(p.OverlayPaths, project)
+		if cfgErr != nil {
+			return nil, cfgErr
 		}
-		if ws := config.ResolveWorkspace(cfg, dir, p.Root); ws != "" {
+		if ws := config.ResolveWorkspace(overlayCfg, overlayDir, p.Root); ws != "" {
 			if err := ensureWorkspaceWritable(ws); err != nil {
 				return nil, err
 			}
@@ -78,6 +82,15 @@ func Files(p Paths, project, profile string) ([]string, error) {
 	if project != "" {
 		if overlay := findOverlayFile(p.OverlayPaths, project, "compose.override.yml"); overlay != "" {
 			args = append(args, "-f", overlay)
+		}
+		if overlayCfg.Ingress != nil {
+			frag, err := ingress.BuildFragment(project, overlayCfg.Ingress, overlayDir, p.Root)
+			if err != nil {
+				return nil, err
+			}
+			if frag.Path != "" {
+				args = append(args, "-f", frag.Path)
+			}
 		}
 	}
 	return args, nil
