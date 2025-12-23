@@ -27,6 +27,7 @@ services:
     volumes:
       - ${WORKSPACE_DIR:-.}:/workspace:rw
       - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
+      - codex-testdata:/workspace/.testdata:rw
       - ivy2-cache:/home/dev/.ivy2
       - coursier-cache:/home/dev/.cache/coursier
       - devkit-auth:/home/dev/.codex
@@ -38,6 +39,17 @@ services:
     depends_on:
       postgres-broker:
         condition: service_started
+      codex-testdata-init:
+        condition: service_completed_successfully
+
+  codex-testdata-init:
+    image: busybox:1.36.1
+    command: ["sh", "-c", "chown -R 1000:1000 /data && chmod 755 /data"]
+    user: "0:0"
+    volumes:
+      - codex-testdata:/data
+    networks:
+      - dev-internal
 
   postgres-broker:
     build:
@@ -69,3 +81,4 @@ services:
 
 volumes:
   broker-run:
+  codex-testdata:
