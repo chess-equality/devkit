@@ -10,12 +10,17 @@ env:
   PATH: /workspace/.local/bin:${PATH}
 ingress:
   kind: caddy
-  config: ../../../ouroboros-ide/infra/Caddyfile
-  certs:
-    - path: ../../../ouroboros-ide/infra/ouroboros.test.pem
-    - path: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
-    - path: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
-    - path: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+  routes:
+    - host: ouroboros.test
+      service: dev-agent
+      port: 4173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: webserver.ouroboros.test
+      service: dev-agent
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
   hosts:
     - ouroboros.test
     - webserver.ouroboros.test

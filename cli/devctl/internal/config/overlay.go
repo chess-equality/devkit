@@ -54,6 +54,8 @@ type IngressRoute struct {
 	Host    string `yaml:"host"`
 	Service string `yaml:"service"`
 	Port    int    `yaml:"port"`
+	Cert    string `yaml:"cert"`
+	Key     string `yaml:"key"`
 }
 
 // IngressCert points at a certificate or key file to mount into the ingress container.

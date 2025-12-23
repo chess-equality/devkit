@@ -86,6 +86,8 @@ func TestReadAllParsesIngress(t *testing.T) {
 		"    - host: ouroboros.test\n" +
 		"      service: frontend\n" +
 		"      port: 4173\n" +
+		"      cert: infra/ouroboros.test.pem\n" +
+		"      key: infra/ouroboros.test-key.pem\n" +
 		"  certs:\n" +
 		"    - path: infra/ouroboros.test.pem\n" +
 		"    - path: infra/ouroboros.test-key.pem\n" +
@@ -112,6 +114,9 @@ func TestReadAllParsesIngress(t *testing.T) {
 	}
 	if len(cfg.Ingress.Routes) != 1 || cfg.Ingress.Routes[0].Host != "ouroboros.test" || cfg.Ingress.Routes[0].Service != "frontend" || cfg.Ingress.Routes[0].Port != 4173 {
 		t.Fatalf("routes=%v", cfg.Ingress.Routes)
+	}
+	if cfg.Ingress.Routes[0].Cert != "infra/ouroboros.test.pem" || cfg.Ingress.Routes[0].Key != "infra/ouroboros.test-key.pem" {
+		t.Fatalf("route cert/key %+v", cfg.Ingress.Routes[0])
 	}
 	if len(cfg.Ingress.Certs) != 2 || cfg.Ingress.Certs[0].Path != "infra/ouroboros.test.pem" {
 		t.Fatalf("certs=%v", cfg.Ingress.Certs)
