@@ -24,6 +24,7 @@ services:
       - SBT_GLOBAL_BASE=/workspace/.devhome/.sbt
       - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
       - TESTCONTAINERS_RYUK_DISABLED=true
+      - TESTCONTAINERS_DEVKIT_NETWORK=${TESTCONTAINERS_DEVKIT_NETWORK:-${COMPOSE_PROJECT_NAME:-devkit}_dev-internal}
     volumes:
       - ${WORKSPACE_DIR:-.}:/workspace:rw
       - ${DEVKIT_WORKTREE_ROOT}:${DEVKIT_WORKTREE_CONTAINER_ROOT:-/worktrees}:rw
@@ -65,7 +66,7 @@ services:
       - BROKER_ALLOWED_TAG=${BROKER_ALLOWED_TAG:-latest}
       - BROKER_ALLOW_PULLS=${BROKER_ALLOW_PULLS:-true}
       - BROKER_LOG_LEVEL=${BROKER_LOG_LEVEL:-info}
-      - BROKER_ATTACH_NETWORKS=${BROKER_ATTACH_NETWORKS:-devkit_dev-internal}
+      - BROKER_ATTACH_NETWORKS=${BROKER_ATTACH_NETWORKS:-${COMPOSE_PROJECT_NAME:-devkit}_dev-internal}
     read_only: true
     cap_drop:
       - ALL
