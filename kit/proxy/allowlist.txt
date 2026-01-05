@@ -44,3 +44,4 @@ example.com
 example.org
 claude.ai
 anthropic.com
+release-assets.githubusercontent.com

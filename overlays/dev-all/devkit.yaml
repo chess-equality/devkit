@@ -7,6 +7,22 @@ defaults:
   base_branch: main
   # Prefix for per-agent branch names (agent1, agent2, ...)
   branch_prefix: agent
+ingress:
+  kind: caddy
+  routes:
+    - host: ouroboros.test
+      service: dev-agent
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: webserver.ouroboros.test
+      service: dev-agent
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+  hosts:
+    - ouroboros.test
+    - webserver.ouroboros.test
 
 hooks:
   # Install Go toolchain if missing so tests can run without manual setup

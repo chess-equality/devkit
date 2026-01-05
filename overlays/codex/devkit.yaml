@@ -13,7 +13,7 @@ ingress:
   routes:
     - host: ouroboros.test
       service: dev-agent
-      port: 4173
+      port: 5173
       cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
       key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
     - host: webserver.ouroboros.test
