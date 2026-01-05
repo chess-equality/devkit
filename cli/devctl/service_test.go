@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,5 +61,22 @@ func TestApplyOverlayEnvLoadsEnvFiles(t *testing.T) {
 	}
 	if got := os.Getenv("BAZ"); got != "existing" {
 		t.Fatalf("env map should not override existing BAZ, got %q", got)
+	}
+}
+
+func TestCodexComposePinsDockerHost(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Clean(filepath.Join(cwd, "..", ".."))
+	overridePath := filepath.Join(root, "overlays", "codex", "compose.override.yml")
+	data, err := os.ReadFile(overridePath)
+	if err != nil {
+		t.Fatalf("read codex override: %v", err)
+	}
+	want := []byte("DOCKER_HOST=unix:///broker-run/postgres-broker.sock")
+	if !bytes.Contains(data, want) {
+		t.Fatalf("codex compose override missing %q", string(want))
 	}
 }

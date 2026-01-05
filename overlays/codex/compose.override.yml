@@ -19,8 +19,8 @@ services:
       - AWS_SHARED_CREDENTIALS_FILE=/workspace/.aws/credentials
       - AWS_CONFIG_FILE=/workspace/.aws/config
       - AWS_PROFILE=${AWS_PROFILE:-codex}
-      # Default to the postgres-broker socket so Docker works unless explicitly overridden.
-      - DOCKER_HOST=${DEVKIT_DOCKER_HOST:-unix:///broker-run/postgres-broker.sock}
+      # Point Docker CLI at the broker-run socket so Testcontainers & docker CLI work out of the box.
+      - DOCKER_HOST=unix:///broker-run/postgres-broker.sock
       - JAVA_TOOL_OPTIONS=-Dhttp.proxyHost=tinyproxy -Dhttp.proxyPort=8888 -Dhttps.proxyHost=tinyproxy -Dhttps.proxyPort=8888 -Djava.net.useSystemProxies=true
       - SBT_GLOBAL_BASE=/workspace/.devhome/.sbt
       - TESTCONTAINERS_RYUK_DISABLED=true
