@@ -1,0 +1,62 @@
+session: devkit_ouro8
+
+overlays:
+  # Single dev-all overlay with 8 agents; prepares 8 worktrees for ouroboros-ide.
+  - project: dev-all
+    service: dev-agent
+    count: 8
+    profiles: dns
+    compose_project: devkit-ouro8
+    network:
+      subnet: 172.31.156.0/24
+      dns_ip: 172.31.156.3
+    worktrees:
+      repo: ouroboros-ide
+      count: 8
+      # base_branch and branch_prefix fallback to overlays/dev-all/devkit.yaml defaults.
+    env:
+      # Use a separate ingress port so ouro4 stacks can remain up in parallel.
+      DEVKIT_INGRESS_PORT: "8453"
+
+windows:
+  # ouroboros-ide agents — each targets a distinct worktree under dev-all.
+  - index: 1
+    project: dev-all
+    service: dev-agent
+    path: ouroboros-ide
+    name: ouro-1
+  - index: 2
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent2/ouroboros-ide
+    name: ouro-2
+  - index: 3
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent3/ouroboros-ide
+    name: ouro-3
+  - index: 4
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent4/ouroboros-ide
+    name: ouro-4
+  - index: 5
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent5/ouroboros-ide
+    name: ouro-5
+  - index: 6
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent6/ouroboros-ide
+    name: ouro-6
+  - index: 7
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent7/ouroboros-ide
+    name: ouro-7
+  - index: 8
+    project: dev-all
+    service: dev-agent
+    path: agent-worktrees/agent8/ouroboros-ide
+    name: ouro-8

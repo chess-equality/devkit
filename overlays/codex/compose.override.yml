@@ -3,12 +3,12 @@ services:
   dev-agent:
     build:
       context: ../../ouroboros-ide
-      dockerfile: docker/dev/codex-agent.Dockerfile
+      dockerfile: infra/docker/dev/codex-agent.Dockerfile
       args:
         INSTALL_CODEX: "${INSTALL_CODEX:-true}"
         INSTALL_CLAUDE: "${INSTALL_CLAUDE:-true}"
         JDK_VERSION: "${JDK_VERSION:-17}"
-        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.74.0}"
+        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.77.0}"
         CODEX_ASSET: "${CODEX_ASSET:-codex-x86_64-unknown-linux-musl.tar.gz}"
         CODEX_SHA256: "${CODEX_SHA256:-}"
         CLAUDE_VERSION: "${CLAUDE_VERSION:-latest}"
