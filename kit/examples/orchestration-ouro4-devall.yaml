@@ -10,6 +10,7 @@ overlays:
     worktrees:
       repo: ouroboros-ide
       count: 4
+      base_branch: feature/MERGE_square-migration
       # base_branch and branch_prefix fallback to overlays/dev-all/devkit.yaml defaults.
 
 windows:

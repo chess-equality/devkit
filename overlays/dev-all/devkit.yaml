@@ -4,7 +4,7 @@ defaults:
   # Primary repo name under the dev root to set up with worktrees
   repo: ouroboros-ide
   # The base branch each per-agent branch should track from origin
-  base_branch: main
+  base_branch: feature/MERGE_square-migration
   # Prefix for per-agent branch names (agent1, agent2, ...)
   branch_prefix: agent
 ingress:
