@@ -113,6 +113,16 @@ func Setup(devkitRoot, repo string, n int, baseBranch, branchPrefix string, dry 
 	envGit := func(args ...string) []string {
 		return append([]string{"-u", "GIT_SSH_COMMAND", "git", "-c", "core.sshCommand=ssh"}, args...)
 	}
+	gitDirty := func(path string) (bool, error) {
+		out, res := execx.Capture(context.Background(), "git", "-C", path, "status", "--porcelain")
+		if res.Code != 0 {
+			return false, fmt.Errorf("git status --porcelain %s: exit %d", path, res.Code)
+		}
+		return strings.TrimSpace(out) != "", nil
+	}
+	warnDirty := func(path string) {
+		fmt.Fprintf(os.Stderr, "[worktrees] warning: uncommitted changes in %s; leaving worktree intact\n", path)
+	}
 
 	var repoWorktreesDir string
 	if !dry {
@@ -146,11 +156,28 @@ func Setup(devkitRoot, repo string, n int, baseBranch, branchPrefix string, dry 
 	}
 	// agent1 uses primary path
 	b1 := fmt.Sprintf("%s1", branchPrefix)
-	if err := run(dry, "env", envGit("-C", repoPath, "checkout", "-B", b1)...); err != nil {
-		return err
-	}
-	if err := run(dry, "env", envGit("-C", repoPath, "branch", "--set-upstream-to=origin/"+baseBranch, b1)...); err != nil {
-		return err
+	if !dry {
+		dirty, err := gitDirty(repoPath)
+		if err != nil {
+			return err
+		}
+		if dirty {
+			warnDirty(repoPath)
+		} else {
+			if err := run(dry, "env", envGit("-C", repoPath, "checkout", "-B", b1, "origin/"+baseBranch)...); err != nil {
+				return err
+			}
+			if err := run(dry, "env", envGit("-C", repoPath, "branch", "--set-upstream-to=origin/"+baseBranch, b1)...); err != nil {
+				return err
+			}
+		}
+	} else {
+		if err := run(dry, "env", envGit("-C", repoPath, "checkout", "-B", b1, "origin/"+baseBranch)...); err != nil {
+			return err
+		}
+		if err := run(dry, "env", envGit("-C", repoPath, "branch", "--set-upstream-to=origin/"+baseBranch, b1)...); err != nil {
+			return err
+		}
 	}
 
 	worktreesRoot := filepath.Join(devRoot, paths.AgentWorktreesDir)
@@ -168,6 +195,18 @@ func Setup(devkitRoot, repo string, n int, baseBranch, branchPrefix string, dry 
 		if !dry {
 			if err := cleanWorktreePath(repoWorktreesDir, wt); err != nil {
 				return err
+			}
+			if _, statErr := os.Stat(wt); statErr == nil {
+				dirty, err := gitDirty(wt)
+				if err != nil {
+					return err
+				}
+				if dirty {
+					warnDirty(wt)
+					continue
+				}
+			} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+				return statErr
 			}
 		}
 		_ = run(dry, "env", envGit("-C", repoPath, "worktree", "prune")...)            // best effort
