@@ -358,6 +358,70 @@ func pushOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string, fo
 	}
 }
 
+func pushEnvMap(env map[string]string) func() {
+	if len(env) == 0 {
+		return nil
+	}
+	type pair struct {
+		key string
+		val string
+	}
+	pairs := make([]pair, 0, len(env))
+	for k, v := range env {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		pairs = append(pairs, pair{key: key, val: v})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].key < pairs[j].key
+	})
+	changed := map[string]*string{}
+	for _, p := range pairs {
+		if _, recorded := changed[p.key]; !recorded {
+			if cur, ok := os.LookupEnv(p.key); ok {
+				val := cur
+				changed[p.key] = &val
+			} else {
+				changed[p.key] = nil
+			}
+		}
+		_ = os.Setenv(p.key, expandValue(p.val))
+	}
+	return func() {
+		for i := len(pairs) - 1; i >= 0; i-- {
+			key := pairs[i].key
+			prev := changed[key]
+			if prev == nil {
+				_ = os.Unsetenv(key)
+				continue
+			}
+			_ = os.Setenv(key, *prev)
+		}
+	}
+}
+
+func combineRestorers(restorers ...func()) func() {
+	active := make([]func(), 0, len(restorers))
+	for _, fn := range restorers {
+		if fn != nil {
+			active = append(active, fn)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	return func() {
+		for i := len(active) - 1; i >= 0; i-- {
+			active[i]()
+		}
+	}
+}
+
 func applyOverlayEnvInternal(cfg config.OverlayConfig, overlayDir string, root string, force bool, changed map[string]*string) {
 	base := strings.TrimSpace(overlayDir)
 	if base == "" {
@@ -1035,7 +1099,9 @@ func main() {
 			Network     *layout.Network
 			ComposeProj string
 			FileArgs    []string
-			RestoreEnv  func()
+			Env         map[string]string
+			OverlayCfg  config.OverlayConfig
+			OverlayDir  string
 		}
 		var overlayRuns []overlayRun
 		projMap := map[string]string{}
@@ -1052,12 +1118,23 @@ func main() {
 			if ovErr != nil {
 				die(ovErr.Error())
 			}
+			pname := resolveComposeProjectName(ovProj, ov.ComposeProject)
+			restoreProj := withComposeProject(pname)
 			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
+			if restoreProj != nil {
+				restoreProj()
+			}
 			if err != nil {
 				die(err.Error())
 			}
-			pname := resolveComposeProjectName(ovProj, ov.ComposeProject)
 			projMap[ovProj] = pname
+			var envCopy map[string]string
+			if len(ov.Env) > 0 {
+				envCopy = make(map[string]string, len(ov.Env))
+				for k, v := range ov.Env {
+					envCopy[k] = v
+				}
+			}
 			run := overlayRun{
 				Project:     ovProj,
 				Service:     ov.Service,
@@ -1067,7 +1144,9 @@ func main() {
 				Network:     ov.Network,
 				ComposeProj: pname,
 				FileArgs:    filesOv,
-				RestoreEnv:  pushOverlayEnv(ovCfg, ovDir, paths.Root, true),
+				Env:         envCopy,
+				OverlayCfg:  ovCfg,
+				OverlayDir:  ovDir,
 			}
 			if os.Getenv("DEVKIT_DEBUG") == "1" {
 				fmt.Fprintf(os.Stderr, "[layout] register overlay %s compose_project=%s profiles=%s\n", run.Project, run.ComposeProj, strings.TrimSpace(ov.Profiles))
@@ -1170,7 +1249,10 @@ func main() {
 		tracker := agentexec.NewSeedTracker()
 		for _, run := range overlayRuns {
 			ovProj := run.Project
-			restoreEnv := run.RestoreEnv
+			restoreEnv := combineRestorers(
+				pushOverlayEnv(run.OverlayCfg, run.OverlayDir, paths.Root, true),
+				pushEnvMap(run.Env),
+			)
 			svc := run.Service
 			if strings.TrimSpace(svc) == "" {
 				svc = "dev-agent"
@@ -1221,26 +1303,15 @@ func main() {
 			}
 		}
 		// 1b) Ensure per-overlay SSH/Git is ready (anchor HOME + keys + global sshCommand)
-		for _, ov := range lf.Overlays {
-			ovProj := strings.TrimSpace(ov.Project)
-			if ovProj == "" {
-				continue
-			}
-			ovCfg, ovDir, ovErr := config.ReadAll(paths.OverlayPaths, ovProj)
-			if ovErr != nil {
-				die(ovErr.Error())
-			}
-			restoreEnv := pushOverlayEnv(ovCfg, ovDir, paths.Root, true)
-			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
-			if err != nil {
-				if restoreEnv != nil {
-					restoreEnv()
-				}
-				die(err.Error())
-			}
-			svc := ov.Service
+		for _, run := range overlayRuns {
+			restoreEnv := combineRestorers(
+				pushOverlayEnv(run.OverlayCfg, run.OverlayDir, paths.Root, true),
+				pushEnvMap(run.Env),
+			)
+			filesOv := run.FileArgs
+			svc := run.Service
 			if strings.TrimSpace(svc) == "" {
-				svc = resolveService(ovProj, paths.OverlayPaths)
+				svc = resolveService(run.Project, paths.OverlayPaths)
 			} else {
 				svc = strings.TrimSpace(svc)
 			}
@@ -1250,12 +1321,12 @@ func main() {
 				}
 				continue
 			}
-			cnt := ov.Count
+			cnt := run.Count
 			if cnt < 1 {
 				cnt = 1
 			}
-			restoreProj := withComposeProject(projMap[ovProj])
-			configureSSHAndGit(dryRun, filesOv, ovProj, svc, cnt)
+			restoreProj := withComposeProject(run.ComposeProj)
+			configureSSHAndGit(dryRun, filesOv, run.Project, svc, cnt)
 			if restoreEnv != nil {
 				restoreEnv()
 			}

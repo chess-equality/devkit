@@ -15,14 +15,110 @@ ingress:
       port: 5173
       cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
       key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-1.test
+      service: dev-agent@1
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-2.test
+      service: dev-agent@2
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-3.test
+      service: dev-agent@3
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-4.test
+      service: dev-agent@4
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-5.test
+      service: dev-agent@5
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-6.test
+      service: dev-agent@6
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-7.test
+      service: dev-agent@7
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-8.test
+      service: dev-agent@8
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
     - host: webserver.ouroboros.test
       service: dev-agent
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-1.ouroboros.test
+      service: dev-agent@1
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-2.ouroboros.test
+      service: dev-agent@2
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-3.ouroboros.test
+      service: dev-agent@3
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-4.ouroboros.test
+      service: dev-agent@4
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-5.ouroboros.test
+      service: dev-agent@5
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-6.ouroboros.test
+      service: dev-agent@6
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-7.ouroboros.test
+      service: dev-agent@7
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-8.ouroboros.test
+      service: dev-agent@8
       port: 8080
       cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
       key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
   hosts:
     - ouroboros.test
     - webserver.ouroboros.test
+    - ouroboros-1.test
+    - ouroboros-2.test
+    - ouroboros-3.test
+    - ouroboros-4.test
+    - ouroboros-5.test
+    - ouroboros-6.test
+    - ouroboros-7.test
+    - ouroboros-8.test
+    - webserver-1.ouroboros.test
+    - webserver-2.ouroboros.test
+    - webserver-3.ouroboros.test
+    - webserver-4.ouroboros.test
+    - webserver-5.ouroboros.test
+    - webserver-6.ouroboros.test
+    - webserver-7.ouroboros.test
+    - webserver-8.ouroboros.test
 
 hooks:
   # Install Go toolchain if missing so tests can run without manual setup
