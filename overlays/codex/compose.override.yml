@@ -7,8 +7,9 @@ services:
       args:
         INSTALL_CODEX: "${INSTALL_CODEX:-true}"
         INSTALL_CLAUDE: "${INSTALL_CLAUDE:-true}"
+        INSTALL_SPAGO: "${INSTALL_SPAGO:-true}"
         JDK_VERSION: "${JDK_VERSION:-17}"
-        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.87.0}"
+        CODEX_VERSION: "${CODEX_VERSION:-rust-v0.98.0}"
         CODEX_ASSET: "${CODEX_ASSET:-codex-x86_64-unknown-linux-musl.tar.gz}"
         CODEX_SHA256: "${CODEX_SHA256:-}"
         CLAUDE_VERSION: "${CLAUDE_VERSION:-latest}"
