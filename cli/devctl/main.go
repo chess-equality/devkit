@@ -970,6 +970,13 @@ func main() {
 		}
 		_ = os.Setenv(key, val)
 	}
+	if strings.TrimSpace(composeProject) == "" {
+		if _, ok := os.LookupEnv("COMPOSE_PROJECT_NAME"); !ok {
+			if v := composeProjectOverride(project); v != "" {
+				_ = os.Setenv("COMPOSE_PROJECT_NAME", v)
+			}
+		}
+	}
 	if len(hostCfg.OverlayPaths) > 0 {
 		extra := resolveHostOverlayPaths(hostCfg.OverlayPaths, hostCfgDir, paths.Root)
 		paths.OverlayPaths = compose.MergeOverlayPaths(paths.OverlayPaths, extra...)
