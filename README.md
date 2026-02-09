@@ -94,6 +94,7 @@ Tmux ergonomics (new):
         name: ouro-1
         service: dev-agent
         # project: dev-all     # optional; defaults to current -p
+        # compose_project: devkit-ouro8   # optional; override compose project per window
       - index: 2
         path: dumb-onion-hax
         name: doh-2

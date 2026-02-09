@@ -875,6 +875,7 @@ Commands:
 Flags:
   -p, --project   overlay project name (required for most)
   --profile       comma-separated: hardened,dns,envoy (default: dns)
+  --compose-project override compose project name for this invocation
   --tmux          force tmux integration even if DEVKIT_NO_TMUX=1
 
 Environment:
@@ -885,6 +886,7 @@ Environment:
 func main() {
 	var project string
 	var profile string
+	var composeProject string
 	var dryRun bool
 	var noTmux bool
 	var forceTmux bool
@@ -911,6 +913,13 @@ func main() {
 			}
 			profile = args[i+1]
 			i++
+		case "--compose-project":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--compose-project requires value")
+				os.Exit(2)
+			}
+			composeProject = args[i+1]
+			i++
 		case "--dry-run":
 			dryRun = true
 		case "--no-tmux":
@@ -932,6 +941,13 @@ func main() {
 	if len(args) == 0 {
 		usage()
 		os.Exit(2)
+	}
+	if strings.TrimSpace(composeProject) != "" {
+		composeProject = strings.TrimSpace(composeProject)
+		_ = os.Setenv("COMPOSE_PROJECT_NAME", composeProject)
+		if strings.TrimSpace(project) != "" {
+			_ = os.Setenv(composeProjectEnvKey(project), composeProject)
+		}
 	}
 
 	exe, _ := os.Executable()
@@ -2743,8 +2759,8 @@ func listTmuxWindows(session string) map[string]struct{} {
 }
 
 // buildWindowCmd composes the docker exec command for a given agent index and dest path using shared agentexec logic.
-func buildWindowCmd(fileArgs []string, project, idx, dest, service string, tracker *agentexec.SeedTracker) (string, error) {
-	return buildWindowCmdForProject(fileArgs, project, idx, dest, service, agentexec.ComposeProjectName(project), "", tracker)
+func buildWindowCmd(fileArgs []string, project, idx, dest, service, composeProject string, tracker *agentexec.SeedTracker) (string, error) {
+	return buildWindowCmdForProject(fileArgs, project, idx, dest, service, composeProject, "", tracker)
 }
 
 func buildWindowCmdForProject(fileArgs []string, project, idx, dest, service, composeProject, containerName string, tracker *agentexec.SeedTracker) (string, error) {
@@ -2767,7 +2783,7 @@ func buildWindowCmdForProject(fileArgs []string, project, idx, dest, service, co
 }
 
 func mustBuildWindowCmd(fileArgs []string, project, idx, dest, service string, tracker *agentexec.SeedTracker) string {
-	cmd, err := buildWindowCmd(fileArgs, project, idx, dest, service, tracker)
+	cmd, err := buildWindowCmd(fileArgs, project, idx, dest, service, "", tracker)
 	if err != nil {
 		die(err.Error())
 	}
