@@ -124,6 +124,16 @@ hooks:
   # Install Go toolchain if missing so tests can run without manual setup
   warm: |
     set -euo pipefail
+    if command -v npm >/dev/null 2>&1; then
+      for repo in /workspaces/dev/ouroboros-ide /workspaces/dev/agent-worktrees/agent*/ouroboros-ide; do
+        if [ -f "$repo/frontend/package.json" ]; then
+          npm --prefix "$repo/frontend" install
+          if ! npm --prefix "$repo/frontend" ls @playwright/test >/dev/null 2>&1; then
+            npm --prefix "$repo/frontend" install --no-save @playwright/test @vitest/browser-playwright
+          fi
+        fi
+      done
+    fi
     mkdir -p /workspace/.local/bin
     if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
       ln -sf "$(command -v python3)" /workspace/.local/bin/python
@@ -147,13 +157,18 @@ hooks:
     tmpdir="$(mktemp -d)"
     tarball="go${version}.linux-${arch}.tar.gz"
     url="${DEVKIT_GO_DOWNLOAD_URL:-https://go.dev/dl/${tarball}}"
+    set +e
     if command -v curl >/dev/null 2>&1; then
-      if ! curl -fsSL "$url" -o "$tmpdir/go.tgz"; then
+      curl -fsSL "$url" -o "$tmpdir/go.tgz"
+      rc=$?
+      if [ $rc -ne 0 ]; then
         echo "[dev-all warm] failed to download Go from $url" >&2
         exit 0
       fi
     elif command -v wget >/dev/null 2>&1; then
-      if ! wget -q -O "$tmpdir/go.tgz" "$url"; then
+      wget -q -O "$tmpdir/go.tgz" "$url"
+      rc=$?
+      if [ $rc -ne 0 ]; then
         echo "[dev-all warm] failed to download Go from $url" >&2
         exit 0
       fi
@@ -161,6 +176,7 @@ hooks:
       echo "[dev-all warm] curl or wget required to bootstrap Go" >&2
       exit 0
     fi
+    set -e
     rm -rf "$dest"
     mkdir -p "$dest"
     tar -C "$root" -xzf "$tmpdir/go.tgz"

@@ -854,7 +854,7 @@ Commands:
   tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH] [--service NAME]
   tmux-add-cd <index> <subpath> [--session NAME] [--name NAME] [--service NAME]
   tmux-apply-layout --file <layout.yaml> [--session NAME] [--attach]
-  layout-apply --file <layout.yaml> [--attach]   (bring up overlays, then attach tmux)
+  layout-apply --file <layout.yaml> [--attach]   (bring up overlays, run warm hooks, then attach tmux)
   layout-validate --file <layout.yaml>                (static checks; exits non-zero on errors)
   layout-generate [--service NAME] [--session NAME] [--output PATH]
   ssh-setup [--key path] [--index N], ssh-test [N]
@@ -1350,6 +1350,44 @@ func main() {
 			}
 			restoreProj := withComposeProject(run.ComposeProj)
 			configureSSHAndGit(dryRun, filesOv, run.Project, svc, cnt)
+			if restoreEnv != nil {
+				restoreEnv()
+			}
+			if restoreProj != nil {
+				restoreProj()
+			}
+		}
+		// 1c) Run overlay warm hooks after bring-up so template apply is ready-to-use.
+		for _, run := range overlayRuns {
+			warmScript := strings.TrimSpace(run.OverlayCfg.Hooks.Warm)
+			if warmScript == "" {
+				continue
+			}
+			restoreEnv := combineRestorers(
+				pushOverlayEnv(run.OverlayCfg, run.OverlayDir, paths.Root, true),
+				pushEnvMap(run.Env),
+			)
+			svc := strings.TrimSpace(run.Service)
+			if svc == "" {
+				svc = strings.TrimSpace(run.OverlayCfg.Service)
+			}
+			if svc == "" {
+				svc = resolveService(run.Project, paths.OverlayPaths)
+			}
+			if svc == "" {
+				svc = "dev-agent"
+			}
+			restoreProj := withComposeProject(run.ComposeProj)
+			fmt.Fprintf(os.Stderr, "[layout] warm overlay=%s service=%s\n", run.Project, svc)
+			if err := runner.ComposeWithProject(dryRun, run.ComposeProj, run.FileArgs, "exec", svc, "bash", "-lc", warmScript); err != nil {
+				if restoreEnv != nil {
+					restoreEnv()
+				}
+				if restoreProj != nil {
+					restoreProj()
+				}
+				die(fmt.Sprintf("layout-apply: warm hook failed for overlay %s: %v", run.Project, err))
+			}
 			if restoreEnv != nil {
 				restoreEnv()
 			}

@@ -40,6 +40,7 @@ Dev Kit — Base Kit Details
             service: dev-agent
     - Orchestrate overlays + tmux from one file:
       - `scripts/devctl layout-apply --file orchestration.yaml`
+      - `layout-apply` runs overlay `hooks.warm` automatically after startup.
       - See devkit/README.md for a full example.
   - Isolation plan: see `isolation.md` for worktrees + per‑agent HOME design.
   - Worktrees + SSH workflow: see `worktrees_ssh.md` for end‑to‑end flows (`bootstrap`, `worktrees-*`, `open`).

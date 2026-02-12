@@ -103,6 +103,7 @@ Tmux ergonomics (new):
 Declarative orchestration (new):
 - Bring up overlays and then attach tmux from a single YAML:
   - `scripts/devkit layout-apply --file orchestration.yaml`
+  - `layout-apply` now runs each overlay `hooks.warm` after startup so template applies are ready-to-use without manual warmup.
   - Generate a YAML from running containers: `scripts/devkit layout-generate --service dev-agent --output orchestration.yaml`
   - orchestration.yaml example:
     session: devkit:mixed
