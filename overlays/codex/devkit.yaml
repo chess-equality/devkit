@@ -123,6 +123,16 @@ ingress:
 hooks:
   warm: |
     set -euo pipefail
+    if command -v npm >/dev/null 2>&1; then
+      for repo in /workspace /workspaces/dev/ouroboros-ide /workspaces/dev/agent-worktrees/agent[0-9]*/ouroboros-ide; do
+        if [ -f "$repo/frontend/package.json" ]; then
+          npm --prefix "$repo/frontend" install --include=dev
+          if [ ! -x "$repo/frontend/node_modules/.bin/tsc" ]; then
+            npm --prefix "$repo/frontend" install --include=dev --no-save typescript
+          fi
+        fi
+      done
+    fi
     mkdir -p /workspace/.local/bin
     if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
       ln -sf "$(command -v python3)" /workspace/.local/bin/python

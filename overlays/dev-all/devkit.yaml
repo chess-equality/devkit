@@ -125,9 +125,12 @@ hooks:
   warm: |
     set -euo pipefail
     if command -v npm >/dev/null 2>&1; then
-      for repo in /workspaces/dev/ouroboros-ide /workspaces/dev/agent-worktrees/agent*/ouroboros-ide; do
+      for repo in /workspaces/dev/ouroboros-ide /workspaces/dev/agent-worktrees/agent[0-9]*/ouroboros-ide; do
         if [ -f "$repo/frontend/package.json" ]; then
-          npm --prefix "$repo/frontend" install
+          npm --prefix "$repo/frontend" install --include=dev
+          if [ ! -x "$repo/frontend/node_modules/.bin/tsc" ]; then
+            npm --prefix "$repo/frontend" install --include=dev --no-save typescript
+          fi
           if ! npm --prefix "$repo/frontend" ls @playwright/test >/dev/null 2>&1; then
             npm --prefix "$repo/frontend" install --no-save @playwright/test @vitest/browser-playwright
           fi
