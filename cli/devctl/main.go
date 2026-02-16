@@ -16,6 +16,7 @@ import (
 	allowcmd "devkit/cli/devctl/internal/commands/allow"
 	composecmd "devkit/cli/devctl/internal/commands/composecmd"
 	hookcmd "devkit/cli/devctl/internal/commands/hooks"
+	hostscmd "devkit/cli/devctl/internal/commands/hosts"
 	networkcmd "devkit/cli/devctl/internal/commands/network"
 	preflightcmd "devkit/cli/devctl/internal/commands/preflight"
 	tmuxcmd "devkit/cli/devctl/internal/commands/tmuxcmd"
@@ -848,6 +849,7 @@ Commands:
   scale N [--tmux-sync [--session NAME] [--name-prefix PFX] [--cd PATH] [--service NAME]],
   exec <n> <cmd...>, attach <n>
   allow <domain>, warm, maintain, check-net
+  hosts [print|apply|check] [--target host|agents|all] [--index N] [--all-agents]
   proxy {tinyproxy|envoy}
   tmux-shells [N], open [N], fresh-open [N]
   exec-cd <index> <subpath> [cmd...], attach-cd <index> <subpath>
@@ -1021,6 +1023,7 @@ func main() {
 	registry := cmdregistry.New()
 	allowcmd.Register(registry)
 	composecmd.Register(registry)
+	hostscmd.Register(registry)
 	hookcmd.Register(registry)
 	networkcmd.Register(registry)
 	preflightcmd.Register(registry)

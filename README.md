@@ -26,6 +26,7 @@ The preflight command validates Docker/Compose, tmux, SSH keys, and Codex creden
 - Start the default stack: `scripts/devkit up` (defaults to `-p codex`).
 - Open a shell inside agent 0: `scripts/devkit exec 0 bash`.
 - Allow a new domain through the proxy: `scripts/devkit allow example.com`.
+- Sync ingress hostnames into host and agent `/etc/hosts`: `scripts/devkit -p codex hosts apply --target all --index 1`.
 - Opt into extra hardening: `scripts/devkit up --profile hardened,dns`.
 - Shut everything down: `scripts/devkit down`.
 
