@@ -149,6 +149,14 @@ Image rebuild note (`ouro8` / `dev-all`):
   - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 scale 8`
   - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 tmux-sync --session devkit`
 
+Auto-readiness (`dev-all`):
+- Lifecycle commands `up`, `restart`, and `scale` automatically run readiness for `dev-all`.
+- Readiness includes SSH bootstrap, warm hook execution, and validation (`git ls-remote`, frontend `tsc`, `@playwright/test`).
+- Manual invocation: `devctl -p dev-all ensure-ready [--count N] [--service dev-agent]`.
+- Escape hatch: append `--skip-ready` to lifecycle commands.
+- Go is image-baked for dev-agent; warm no longer downloads Go at runtime.
+- Warm ensures frontend Playwright browser binaries are present (`playwright install chromium`).
+
 Convenience targets to validate the codex overlay end‑to‑end:
 
 - Build CLI: `make -C devkit build-cli`

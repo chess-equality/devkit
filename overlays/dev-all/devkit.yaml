@@ -7,6 +7,10 @@ defaults:
   base_branch: main
   # Prefix for per-agent branch names (agent1, agent2, ...)
   branch_prefix: agent
+  # Run readiness (ssh + warm + validation) after up/restart/scale.
+  auto_ready: true
+  # Warm hook is required for readiness.
+  require_warm: true
 ingress:
   kind: caddy
   routes:
@@ -121,7 +125,7 @@ ingress:
     - webserver-8.ouroboros.test
 
 hooks:
-  # Install Go toolchain if missing so tests can run without manual setup
+  # Warm frontend deps and ensure playwright/typecheck tooling exists.
   warm: |
     set -euo pipefail
     if command -v npm >/dev/null 2>&1; then
@@ -134,6 +138,7 @@ hooks:
           if ! npm --prefix "$repo/frontend" ls @playwright/test >/dev/null 2>&1; then
             npm --prefix "$repo/frontend" install --no-save @playwright/test @vitest/browser-playwright
           fi
+          npm --prefix "$repo/frontend" exec playwright install chromium
         fi
       done
     fi
@@ -141,49 +146,6 @@ hooks:
     if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
       ln -sf "$(command -v python3)" /workspace/.local/bin/python
     fi
-    if command -v go >/dev/null 2>&1; then
-      exit 0
-    fi
-    version="${DEVKIT_GO_VERSION:-1.22.4}"
-    arch="$(uname -m)"
-    case "$arch" in
-      x86_64|amd64) arch=amd64 ;;
-      arm64|aarch64) arch=arm64 ;;
-      *)
-        echo "[dev-all warm] unsupported architecture: $arch" >&2
-        exit 0
-        ;;
-    esac
-    root=/workspace/.toolchains
-    dest="$root/go"
-    mkdir -p "$root"
-    tmpdir="$(mktemp -d)"
-    tarball="go${version}.linux-${arch}.tar.gz"
-    url="${DEVKIT_GO_DOWNLOAD_URL:-https://go.dev/dl/${tarball}}"
-    set +e
-    if command -v curl >/dev/null 2>&1; then
-      curl -fsSL "$url" -o "$tmpdir/go.tgz"
-      rc=$?
-      if [ $rc -ne 0 ]; then
-        echo "[dev-all warm] failed to download Go from $url" >&2
-        exit 0
-      fi
-    elif command -v wget >/dev/null 2>&1; then
-      wget -q -O "$tmpdir/go.tgz" "$url"
-      rc=$?
-      if [ $rc -ne 0 ]; then
-        echo "[dev-all warm] failed to download Go from $url" >&2
-        exit 0
-      fi
-    else
-      echo "[dev-all warm] curl or wget required to bootstrap Go" >&2
-      exit 0
-    fi
-    set -e
-    rm -rf "$dest"
-    mkdir -p "$dest"
-    tar -C "$root" -xzf "$tmpdir/go.tgz"
-    rm -rf "$tmpdir"
   maintain: ""
 
 env_files:

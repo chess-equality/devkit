@@ -89,6 +89,16 @@ Image rebuild note (`ouro8`/`dev-all`):
   - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 scale 8`
   - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 tmux-sync --session devkit`
 
+Auto-readiness (`dev-all`):
+- `up`, `restart`, and `scale` now run readiness automatically for `dev-all`:
+  - SSH/bootstrap for all running agents
+  - overlay `warm` hook
+  - validation (`git ls-remote`, frontend `tsc`, `@playwright/test`)
+- Run explicitly when needed: `scripts/devkit -p dev-all ensure-ready [--count N] [--service dev-agent]`
+- Bypass only for emergencies: append `--skip-ready` to `up`, `restart`, or `scale`.
+- Go is installed in the dev-agent image; warm no longer bootstraps Go from `go.dev`.
+- Warm ensures `@playwright/test` is installed and runs `playwright install chromium` in frontend repos.
+
 Tmux ergonomics (new):
 - Sync windows to running agents: `scripts/devkit tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH]`.
   - Defaults: session `devkit:<project>`, names `agent-<n>`, cd to `/workspace` (codex) or `/workspaces/dev[/agentN]` (dev-all).

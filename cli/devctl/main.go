@@ -846,7 +846,8 @@ Usage: devctl -p <project> [--profile <profiles>] <command> [args]
 
 Commands:
   up, down, restart, status, logs
-  scale N [--tmux-sync [--session NAME] [--name-prefix PFX] [--cd PATH] [--service NAME]],
+  scale N [--tmux-sync [--session NAME] [--name-prefix PFX] [--cd PATH] [--service NAME]] [--skip-ready],
+  ensure-ready [--count N] [--service NAME]
   exec <n> <cmd...>, attach <n>
   allow <domain>, warm, maintain, check-net
   hosts [print|apply|check] [--target host|agents|all] [--index N] [--all-agents]
@@ -1046,7 +1047,23 @@ func main() {
 			if err := handler(ctx); err != nil {
 				die(err.Error())
 			}
-			seedAfterUp(ctx, pname)
+			if !hasArgFlag(sub, "--skip-ready") {
+				if err := ensureProjectReady(ctx, pname, "", 0, false); err != nil {
+					die(err.Error())
+				}
+			}
+			return
+		}
+		if cmd == "restart" {
+			pname := composeProjectName(ctx.Project)
+			if err := handler(ctx); err != nil {
+				die(err.Error())
+			}
+			if !hasArgFlag(sub, "--skip-ready") {
+				if err := ensureProjectReady(ctx, pname, "", 0, false); err != nil {
+					die(err.Error())
+				}
+			}
 			return
 		}
 		if err := handler(ctx); err != nil {
@@ -1059,6 +1076,7 @@ func main() {
 		mustProject(project)
 		n := "1"
 		doTmuxSync := false
+		skipReady := false
 		sessName := ""
 		namePrefix := "agent-"
 		cdPath := ""
@@ -1071,6 +1089,8 @@ func main() {
 			switch sub[i] {
 			case "--tmux-sync":
 				doTmuxSync = true
+			case "--skip-ready":
+				skipReady = true
 			case "--session":
 				if i+1 < len(sub) {
 					sessName = sub[i+1]
@@ -1094,9 +1114,39 @@ func main() {
 			}
 		}
 		runner.Compose(dryRun, files, "up", "-d", "--scale", service+"="+n)
+		if !skipReady {
+			if err := ensureProjectReady(ctx, composeProjectName(project), service, mustAtoi(n), false); err != nil {
+				die(err.Error())
+			}
+		}
 		if doTmuxSync && !skipTmux() {
 			// Best effort: if tmux present, sync windows up to N
 			doSyncTmux(dryRun, paths, project, files, sessName, namePrefix, cdPath, mustAtoi(n), service)
+		}
+	case "ensure-ready":
+		mustProject(project)
+		svc := ""
+		count := 0
+		for i := 0; i < len(sub); i++ {
+			switch sub[i] {
+			case "--count":
+				if i+1 < len(sub) {
+					count = mustAtoi(sub[i+1])
+					i++
+				} else {
+					die("--count requires a value")
+				}
+			case "--service":
+				if i+1 < len(sub) {
+					svc = strings.TrimSpace(sub[i+1])
+					i++
+				} else {
+					die("--service requires a value")
+				}
+			}
+		}
+		if err := ensureProjectReady(ctx, composeProjectName(project), svc, count, true); err != nil {
+			die(err.Error())
 		}
 	case "layout-apply":
 		layoutPath := ""
@@ -2852,23 +2902,130 @@ func runAnchorPlan(dry bool, files []string, service, idx string, cfg seed.Ancho
 	}
 }
 
-func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
-	if ctx.DryRun {
-		return
+func hasArgFlag(args []string, flag string) bool {
+	flag = strings.TrimSpace(flag)
+	if flag == "" {
+		return false
 	}
-	svc := resolveService(ctx.Project, ctx.Paths.OverlayPaths)
-	if strings.TrimSpace(svc) == "" {
+	for _, a := range args {
+		if strings.TrimSpace(a) == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func isDevAllAutoReady(project string, paths compose.Paths) bool {
+	if strings.TrimSpace(project) != "dev-all" {
+		return false
+	}
+	cfg, _, err := config.ReadAll(paths.OverlayPaths, project)
+	if err == nil && cfg.Defaults.AutoReady != nil {
+		return *cfg.Defaults.AutoReady
+	}
+	return true
+}
+
+func isDevAllRequireWarm(project string, paths compose.Paths) bool {
+	if strings.TrimSpace(project) != "dev-all" {
+		return false
+	}
+	cfg, _, err := config.ReadAll(paths.OverlayPaths, project)
+	if err == nil && cfg.Defaults.RequireWarm != nil {
+		return *cfg.Defaults.RequireWarm
+	}
+	return true
+}
+
+func readDefaultRepo(project string, paths compose.Paths) string {
+	repo := "ouroboros-ide"
+	if strings.TrimSpace(project) != "dev-all" {
+		return repo
+	}
+	if cfg, _, err := config.ReadAll(paths.OverlayPaths, project); err == nil {
+		if strings.TrimSpace(cfg.Defaults.Repo) != "" {
+			repo = strings.TrimSpace(cfg.Defaults.Repo)
+		}
+	}
+	return repo
+}
+
+func ensureProjectReady(ctx *cmdregistry.Context, composeProject string, service string, count int, force bool) error {
+	project := strings.TrimSpace(ctx.Project)
+	if project == "" {
+		return fmt.Errorf("-p <project> is required")
+	}
+	if !force && !isDevAllAutoReady(project, ctx.Paths) {
+		return nil
+	}
+	if project != "dev-all" {
+		return nil
+	}
+
+	svc := strings.TrimSpace(service)
+	if svc == "" {
+		svc = resolveService(project, ctx.Paths.OverlayPaths)
+	}
+	if svc == "" {
 		svc = "dev-agent"
 	}
-	names := listServiceNamesProject(projectName, svc)
-	if len(names) == 0 {
-		names = listServiceNames(ctx.Files, svc)
+
+	pname := strings.TrimSpace(composeProject)
+	if pname == "" {
+		pname = composeProjectName(project)
 	}
-	cnt := len(names)
-	if cnt == 0 {
-		return
+	_, _, err := allow.EnsureSSHGitHub(ctx.Paths.Kit)
+	if err != nil {
+		return fmt.Errorf("ensure ssh.github.com allowlist: %w", err)
 	}
-	configureSSHAndGit(ctx.DryRun, ctx.Files, ctx.Project, svc, cnt)
+	if err := runner.ComposeWithProject(ctx.DryRun, pname, ctx.Files, "restart", "tinyproxy", "dns"); err != nil {
+		return fmt.Errorf("restart proxy/dns: %w", err)
+	}
+
+	if count < 1 {
+		names := listServiceNamesProject(pname, svc)
+		if len(names) == 0 {
+			names = listServiceNames(ctx.Files, svc)
+		}
+		count = len(names)
+	}
+	if count < 1 {
+		return fmt.Errorf("no running %s containers found for compose project %s", svc, pname)
+	}
+
+	configureSSHAndGit(ctx.DryRun, ctx.Files, project, svc, count)
+
+	overlayCfg, _, cfgErr := config.ReadAll(ctx.Paths.OverlayPaths, project)
+	if cfgErr != nil {
+		return cfgErr
+	}
+	warmScript := strings.TrimSpace(overlayCfg.Hooks.Warm)
+	requireWarm := isDevAllRequireWarm(project, ctx.Paths)
+	if warmScript == "" && requireWarm {
+		return fmt.Errorf("warm hook is required for %s but not defined", project)
+	}
+	if warmScript != "" {
+		if err := runner.ComposeWithProject(ctx.DryRun, pname, ctx.Files, "exec", svc, "bash", "-lc", warmScript); err != nil {
+			return fmt.Errorf("warm hook failed: %w", err)
+		}
+	}
+
+	repo := readDefaultRepo(project, ctx.Paths)
+	for i := 1; i <= count; i++ {
+		idx := fmt.Sprintf("%d", i)
+		repoPath := pth.AgentRepoPath(project, idx, repo)
+		anchor := anchorHome(project)
+		script := fmt.Sprintf(
+			"set -euo pipefail; export HOME=%q; test -f %q/.ssh/config; cd %q; GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\" git ls-remote --heads origin >/dev/null; if [ -f frontend/package.json ]; then test -x frontend/node_modules/.bin/tsc; npm --prefix frontend ls @playwright/test --depth=0 >/dev/null; fi",
+			anchor, anchor, repoPath,
+		)
+		execServiceIdx(ctx.DryRun, ctx.Files, svc, idx, script)
+	}
+	return nil
+}
+
+func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
+	_ = ensureProjectReady(ctx, projectName, "", 0, false)
 }
 
 func configureSSHAndGit(dry bool, files []string, project string, service string, count int) {
