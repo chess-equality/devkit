@@ -139,6 +139,16 @@ Worktrees workflow (dev-all overlay):
 - Bootstrap using defaults from `overlays/dev-all/devkit.yaml`: `devctl -p dev-all bootstrap`.
 - Open tmux across worktrees: `devctl -p dev-all worktrees-tmux <repo> <count>`.
 
+Image rebuild note (`ouro8` / `dev-all`):
+- `dev-all` reuses `image: local/dev-agent:codex`; it does not rebuild `dev-agent`.
+- Rebuild via the codex overlay first:
+  - `cd devkit && DEVKIT_WORKTREE_ROOT=/home/bayesartre/dev/agent-worktrees docker compose -p devkit-codex-build -f kit/compose.yml -f overlays/codex/compose.override.yml build --no-cache dev-agent`
+- Then recreate and resync the ouro8 stack:
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 down`
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 up`
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 scale 8`
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 tmux-sync --session devkit`
+
 Convenience targets to validate the codex overlay end‑to‑end:
 
 - Build CLI: `make -C devkit build-cli`

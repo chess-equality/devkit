@@ -79,6 +79,16 @@ Worktrees (isolated branches per agent, dev-all overlay):
   - Setup: `scripts/devkit -p dev-all worktrees-setup ouroboros-ide 3`
   - Open windows: `scripts/devkit -p dev-all worktrees-tmux ouroboros-ide 3`
 
+Image rebuild note (`ouro8`/`dev-all`):
+- `overlays/dev-all/compose.override.yml` pins `dev-agent` to `image: local/dev-agent:codex` and does not build it.
+- Rebuild `local/dev-agent:codex` through the codex overlay when Codex/Dockerfile args change:
+  - `cd devkit && DEVKIT_WORKTREE_ROOT=/home/bayesartre/dev/agent-worktrees docker compose -p devkit-codex-build -f kit/compose.yml -f overlays/codex/compose.override.yml build --no-cache dev-agent`
+- Then recreate the ouro8 stack so agents pick up the new image:
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 down`
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 up`
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 scale 8`
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 tmux-sync --session devkit`
+
 Tmux ergonomics (new):
 - Sync windows to running agents: `scripts/devkit tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH]`.
   - Defaults: session `devkit:<project>`, names `agent-<n>`, cd to `/workspace` (codex) or `/workspaces/dev[/agentN]` (dev-all).
