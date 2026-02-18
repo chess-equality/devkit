@@ -98,6 +98,8 @@ Auto-readiness (`dev-all`):
 - Bypass only for emergencies: append `--skip-ready` to `up`, `restart`, or `scale`.
 - Go is installed in the dev-agent image; warm no longer bootstraps Go from `go.dev`.
 - Warm ensures `@playwright/test` is installed and runs `playwright install chromium` in frontend repos.
+- Warm also materializes `/workspaces/dev/agent-worktrees/agent1/<repo>` as a compatibility link to the root repo mount.
+- Warm also ensures the Playwright CLI package (`playwright`) is present, aligned with `microsoft/playwright-cli` deprecation to `npx playwright`.
 
 Tmux ergonomics (new):
 - Sync windows to running agents: `scripts/devkit tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH]`.

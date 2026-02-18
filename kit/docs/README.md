@@ -156,6 +156,8 @@ Auto-readiness (`dev-all`):
 - Escape hatch: append `--skip-ready` to lifecycle commands.
 - Go is image-baked for dev-agent; warm no longer downloads Go at runtime.
 - Warm ensures frontend Playwright browser binaries are present (`playwright install chromium`).
+- Warm creates an `agent1` compatibility path under `agent-worktrees` pointing at the root repo mount.
+- Warm ensures the Playwright CLI package (`playwright`) is available (the archived `microsoft/playwright-cli` flow now maps to `npx playwright`).
 
 Convenience targets to validate the codex overlay end‑to‑end:
 

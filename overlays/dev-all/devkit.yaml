@@ -128,15 +128,24 @@ hooks:
   # Warm frontend deps and ensure playwright/typecheck tooling exists.
   warm: |
     set -euo pipefail
+    # Keep a compatibility path for workflows that expect agent1 under agent-worktrees.
+    mkdir -p /workspaces/dev/agent-worktrees/agent1
+    if [ -d /workspaces/dev/ouroboros-ide ] && [ ! -e /workspaces/dev/agent-worktrees/agent1/ouroboros-ide ]; then
+      ln -s ../../ouroboros-ide /workspaces/dev/agent-worktrees/agent1/ouroboros-ide
+    fi
     if command -v npm >/dev/null 2>&1; then
       for repo in /workspaces/dev/ouroboros-ide /workspaces/dev/agent-worktrees/agent[0-9]*/ouroboros-ide; do
         if [ -f "$repo/frontend/package.json" ]; then
-          npm --prefix "$repo/frontend" install --include=dev
+          npm --prefix "$repo/frontend" install --include=dev --no-package-lock
           if [ ! -x "$repo/frontend/node_modules/.bin/tsc" ]; then
-            npm --prefix "$repo/frontend" install --include=dev --no-save typescript
+            npm --prefix "$repo/frontend" install --include=dev --no-save --no-package-lock typescript
           fi
           if ! npm --prefix "$repo/frontend" ls @playwright/test >/dev/null 2>&1; then
-            npm --prefix "$repo/frontend" install --no-save @playwright/test @vitest/browser-playwright
+            npm --prefix "$repo/frontend" install --no-save --no-package-lock @playwright/test @vitest/browser-playwright
+          fi
+          # microsoft/playwright-cli is archived; canonical CLI is `npx playwright`.
+          if ! npm --prefix "$repo/frontend" ls playwright >/dev/null 2>&1; then
+            npm --prefix "$repo/frontend" install --no-save --no-package-lock playwright
           fi
           npm --prefix "$repo/frontend" exec playwright install chromium
         fi
