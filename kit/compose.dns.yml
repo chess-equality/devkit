@@ -6,6 +6,9 @@ services:
       - ${DEVKIT_DNS_IP:-172.30.10.53}
     depends_on:
       - dns
+  tinyproxy:
+    dns:
+      - ${DEVKIT_DNS_IP:-172.30.10.53}
 
   dns:
     image: andyshinn/dnsmasq:latest

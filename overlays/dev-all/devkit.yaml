@@ -7,6 +7,10 @@ defaults:
   base_branch: feature/MERGE_square-migration
   # Prefix for per-agent branch names (agent1, agent2, ...)
   branch_prefix: agent
+  # Run readiness (ssh + warm + validation) after up/restart/scale.
+  auto_ready: true
+  # Warm hook is required for readiness.
+  require_warm: true
 ingress:
   kind: caddy
   routes:
@@ -15,60 +19,142 @@ ingress:
       port: 5173
       cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
       key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-1.test
+      service: dev-agent@1
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-2.test
+      service: dev-agent@2
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-3.test
+      service: dev-agent@3
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-4.test
+      service: dev-agent@4
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-5.test
+      service: dev-agent@5
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-6.test
+      service: dev-agent@6
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-7.test
+      service: dev-agent@7
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
+    - host: ouroboros-8.test
+      service: dev-agent@8
+      port: 5173
+      cert: ../../../ouroboros-ide/infra/ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/ouroboros.test-key.pem
     - host: webserver.ouroboros.test
       service: dev-agent
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-1.ouroboros.test
+      service: dev-agent@1
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-2.ouroboros.test
+      service: dev-agent@2
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-3.ouroboros.test
+      service: dev-agent@3
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-4.ouroboros.test
+      service: dev-agent@4
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-5.ouroboros.test
+      service: dev-agent@5
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-6.ouroboros.test
+      service: dev-agent@6
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-7.ouroboros.test
+      service: dev-agent@7
+      port: 8080
+      cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
+      key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
+    - host: webserver-8.ouroboros.test
+      service: dev-agent@8
       port: 8080
       cert: ../../../ouroboros-ide/infra/webserver.ouroboros.test.pem
       key: ../../../ouroboros-ide/infra/webserver.ouroboros.test-key.pem
   hosts:
     - ouroboros.test
     - webserver.ouroboros.test
+    - ouroboros-1.test
+    - ouroboros-2.test
+    - ouroboros-3.test
+    - ouroboros-4.test
+    - ouroboros-5.test
+    - ouroboros-6.test
+    - ouroboros-7.test
+    - ouroboros-8.test
+    - webserver-1.ouroboros.test
+    - webserver-2.ouroboros.test
+    - webserver-3.ouroboros.test
+    - webserver-4.ouroboros.test
+    - webserver-5.ouroboros.test
+    - webserver-6.ouroboros.test
+    - webserver-7.ouroboros.test
+    - webserver-8.ouroboros.test
 
 hooks:
-  # Install Go toolchain if missing so tests can run without manual setup
+  # Warm frontend deps and ensure playwright/typecheck tooling exists.
   warm: |
     set -euo pipefail
+    # Keep a compatibility path for workflows that expect agent1 under agent-worktrees.
+    mkdir -p /workspaces/dev/agent-worktrees/agent1
+    if [ -d /workspaces/dev/ouroboros-ide ] && [ ! -e /workspaces/dev/agent-worktrees/agent1/ouroboros-ide ]; then
+      ln -s ../../ouroboros-ide /workspaces/dev/agent-worktrees/agent1/ouroboros-ide
+    fi
+    if command -v npm >/dev/null 2>&1; then
+      for repo in /workspaces/dev/ouroboros-ide /workspaces/dev/agent-worktrees/agent[0-9]*/ouroboros-ide; do
+        if [ -f "$repo/frontend/package.json" ]; then
+          npm --prefix "$repo/frontend" install --include=dev --no-package-lock
+          if [ ! -x "$repo/frontend/node_modules/.bin/tsc" ]; then
+            npm --prefix "$repo/frontend" install --include=dev --no-save --no-package-lock typescript
+          fi
+          if ! npm --prefix "$repo/frontend" ls @playwright/test >/dev/null 2>&1; then
+            npm --prefix "$repo/frontend" install --no-save --no-package-lock @playwright/test @vitest/browser-playwright
+          fi
+          # microsoft/playwright-cli is archived; canonical CLI is `npx playwright`.
+          if ! npm --prefix "$repo/frontend" ls playwright >/dev/null 2>&1; then
+            npm --prefix "$repo/frontend" install --no-save --no-package-lock playwright
+          fi
+          npm --prefix "$repo/frontend" exec playwright install chromium
+        fi
+      done
+    fi
     mkdir -p /workspace/.local/bin
     if command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
       ln -sf "$(command -v python3)" /workspace/.local/bin/python
     fi
-    if command -v go >/dev/null 2>&1; then
-      exit 0
-    fi
-    version="${DEVKIT_GO_VERSION:-1.22.4}"
-    arch="$(uname -m)"
-    case "$arch" in
-      x86_64|amd64) arch=amd64 ;;
-      arm64|aarch64) arch=arm64 ;;
-      *)
-        echo "[dev-all warm] unsupported architecture: $arch" >&2
-        exit 0
-        ;;
-    esac
-    root=/workspace/.toolchains
-    dest="$root/go"
-    mkdir -p "$root"
-    tmpdir="$(mktemp -d)"
-    tarball="go${version}.linux-${arch}.tar.gz"
-    url="${DEVKIT_GO_DOWNLOAD_URL:-https://go.dev/dl/${tarball}}"
-    if command -v curl >/dev/null 2>&1; then
-      if ! curl -fsSL "$url" -o "$tmpdir/go.tgz"; then
-        echo "[dev-all warm] failed to download Go from $url" >&2
-        exit 0
-      fi
-    elif command -v wget >/dev/null 2>&1; then
-      if ! wget -q -O "$tmpdir/go.tgz" "$url"; then
-        echo "[dev-all warm] failed to download Go from $url" >&2
-        exit 0
-      fi
-    else
-      echo "[dev-all warm] curl or wget required to bootstrap Go" >&2
-      exit 0
-    fi
-    rm -rf "$dest"
-    mkdir -p "$dest"
-    tar -C "$root" -xzf "$tmpdir/go.tgz"
-    rm -rf "$tmpdir"
   maintain: ""
 
 env_files:

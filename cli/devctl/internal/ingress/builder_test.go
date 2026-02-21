@@ -49,6 +49,7 @@ func TestBuildFragmentGeneratesConfigFromRoutes(t *testing.T) {
 		Kind: "caddy",
 		Routes: []config.IngressRoute{
 			{Host: "ouroboros.test", Service: "frontend", Port: 4173},
+			{Host: "ouroboros-7.test", Service: "dev-agent@7", Port: 5173},
 		},
 	}
 	frag, err := BuildFragment(project, cfg, "", dir)
@@ -66,6 +67,9 @@ func TestBuildFragmentGeneratesConfigFromRoutes(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "ouroboros.test") {
 		t.Fatalf("generated config missing host: %s", string(content))
+	}
+	if !strings.Contains(string(content), "devkit-proj-routes-dev-agent-7:5173") {
+		t.Fatalf("generated config missing agent service: %s", string(content))
 	}
 	if frag.Path == "" {
 		t.Fatalf("missing fragment path")

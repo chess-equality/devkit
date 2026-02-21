@@ -21,7 +21,7 @@ func Register(
 	defaultSessionFn func(string) string,
 	atoiFn func(string) int,
 	listFn func([]string, string) []string,
-	buildFn func([]string, string, string, string, string, *agentexec.SeedTracker) (string, error),
+	buildFn func([]string, string, string, string, string, string, *agentexec.SeedTracker) (string, error),
 	trackerFn func() *agentexec.SeedTracker,
 	hasFn func(string) bool,
 ) {
@@ -187,7 +187,8 @@ func handleApplyLayout(ctx *cmdregistry.Context) error {
 		if strings.TrimSpace(name) == "" {
 			name = "agent-" + idx
 		}
-		cmdStr, err := buildWindowCmd(fargs, winProj, idx, dest, svc, tracker)
+		composeProject := strings.TrimSpace(w.ComposeProject)
+		cmdStr, err := buildWindowCmd(fargs, winProj, idx, dest, svc, composeProject, tracker)
 		if err != nil {
 			return err
 		}
@@ -214,7 +215,8 @@ func handleApplyLayout(ctx *cmdregistry.Context) error {
 		if strings.TrimSpace(name) == "" {
 			name = "agent-" + idx
 		}
-		cmdStr, err := buildWindowCmd(fargs, winProj, idx, dest, svc, tracker)
+		composeProject := strings.TrimSpace(w.ComposeProject)
+		cmdStr, err := buildWindowCmd(fargs, winProj, idx, dest, svc, composeProject, tracker)
 		if err != nil {
 			return err
 		}
@@ -239,7 +241,7 @@ var (
 	defaultSessionName          func(string) string
 	mustAtoi                    func(string) int
 	listServiceNames            func([]string, string) []string
-	buildWindowCmd              func([]string, string, string, string, string, *agentexec.SeedTracker) (string, error)
+	buildWindowCmd              func([]string, string, string, string, string, string, *agentexec.SeedTracker) (string, error)
 	newSeedTracker              func() *agentexec.SeedTracker
 	hasTmuxSession              func(string) bool
 )

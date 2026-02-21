@@ -16,6 +16,7 @@ import (
 	allowcmd "devkit/cli/devctl/internal/commands/allow"
 	composecmd "devkit/cli/devctl/internal/commands/composecmd"
 	hookcmd "devkit/cli/devctl/internal/commands/hooks"
+	hostscmd "devkit/cli/devctl/internal/commands/hosts"
 	networkcmd "devkit/cli/devctl/internal/commands/network"
 	preflightcmd "devkit/cli/devctl/internal/commands/preflight"
 	tmuxcmd "devkit/cli/devctl/internal/commands/tmuxcmd"
@@ -354,6 +355,70 @@ func pushOverlayEnv(cfg config.OverlayConfig, overlayDir string, root string, fo
 				continue
 			}
 			_ = os.Setenv(key, *prev)
+		}
+	}
+}
+
+func pushEnvMap(env map[string]string) func() {
+	if len(env) == 0 {
+		return nil
+	}
+	type pair struct {
+		key string
+		val string
+	}
+	pairs := make([]pair, 0, len(env))
+	for k, v := range env {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		pairs = append(pairs, pair{key: key, val: v})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].key < pairs[j].key
+	})
+	changed := map[string]*string{}
+	for _, p := range pairs {
+		if _, recorded := changed[p.key]; !recorded {
+			if cur, ok := os.LookupEnv(p.key); ok {
+				val := cur
+				changed[p.key] = &val
+			} else {
+				changed[p.key] = nil
+			}
+		}
+		_ = os.Setenv(p.key, expandValue(p.val))
+	}
+	return func() {
+		for i := len(pairs) - 1; i >= 0; i-- {
+			key := pairs[i].key
+			prev := changed[key]
+			if prev == nil {
+				_ = os.Unsetenv(key)
+				continue
+			}
+			_ = os.Setenv(key, *prev)
+		}
+	}
+}
+
+func combineRestorers(restorers ...func()) func() {
+	active := make([]func(), 0, len(restorers))
+	for _, fn := range restorers {
+		if fn != nil {
+			active = append(active, fn)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	return func() {
+		for i := len(active) - 1; i >= 0; i-- {
+			active[i]()
 		}
 	}
 }
@@ -781,16 +846,18 @@ Usage: devctl -p <project> [--profile <profiles>] <command> [args]
 
 Commands:
   up, down, restart, status, logs
-  scale N [--tmux-sync [--session NAME] [--name-prefix PFX] [--cd PATH] [--service NAME]],
+  scale N [--tmux-sync [--session NAME] [--name-prefix PFX] [--cd PATH] [--service NAME]] [--skip-ready],
+  ensure-ready [--count N] [--service NAME]
   exec <n> <cmd...>, attach <n>
   allow <domain>, warm, maintain, check-net
+  hosts [print|apply|check] [--target host|agents|all] [--index N] [--all-agents]
   proxy {tinyproxy|envoy}
   tmux-shells [N], open [N], fresh-open [N]
   exec-cd <index> <subpath> [cmd...], attach-cd <index> <subpath>
   tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH] [--service NAME]
   tmux-add-cd <index> <subpath> [--session NAME] [--name NAME] [--service NAME]
   tmux-apply-layout --file <layout.yaml> [--session NAME] [--attach]
-  layout-apply --file <layout.yaml> [--attach]   (bring up overlays, then attach tmux)
+  layout-apply --file <layout.yaml> [--attach]   (bring up overlays, run warm hooks, then attach tmux)
   layout-validate --file <layout.yaml>                (static checks; exits non-zero on errors)
   layout-generate [--service NAME] [--session NAME] [--output PATH]
   ssh-setup [--key path] [--index N], ssh-test [N]
@@ -811,6 +878,7 @@ Commands:
 Flags:
   -p, --project   overlay project name (required for most)
   --profile       comma-separated: hardened,dns,envoy (default: dns)
+  --compose-project override compose project name for this invocation
   --tmux          force tmux integration even if DEVKIT_NO_TMUX=1
 
 Environment:
@@ -821,6 +889,7 @@ Environment:
 func main() {
 	var project string
 	var profile string
+	var composeProject string
 	var dryRun bool
 	var noTmux bool
 	var forceTmux bool
@@ -847,6 +916,13 @@ func main() {
 			}
 			profile = args[i+1]
 			i++
+		case "--compose-project":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--compose-project requires value")
+				os.Exit(2)
+			}
+			composeProject = args[i+1]
+			i++
 		case "--dry-run":
 			dryRun = true
 		case "--no-tmux":
@@ -869,6 +945,13 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	if strings.TrimSpace(composeProject) != "" {
+		composeProject = strings.TrimSpace(composeProject)
+		_ = os.Setenv("COMPOSE_PROJECT_NAME", composeProject)
+		if strings.TrimSpace(project) != "" {
+			_ = os.Setenv(composeProjectEnvKey(project), composeProject)
+		}
+	}
 
 	exe, _ := os.Executable()
 	paths, _ := compose.DetectPathsFromExe(exe)
@@ -889,6 +972,13 @@ func main() {
 			continue
 		}
 		_ = os.Setenv(key, val)
+	}
+	if strings.TrimSpace(composeProject) == "" {
+		if _, ok := os.LookupEnv("COMPOSE_PROJECT_NAME"); !ok {
+			if v := composeProjectOverride(project); v != "" {
+				_ = os.Setenv("COMPOSE_PROJECT_NAME", v)
+			}
+		}
 	}
 	if len(hostCfg.OverlayPaths) > 0 {
 		extra := resolveHostOverlayPaths(hostCfg.OverlayPaths, hostCfgDir, paths.Root)
@@ -934,6 +1024,7 @@ func main() {
 	registry := cmdregistry.New()
 	allowcmd.Register(registry)
 	composecmd.Register(registry)
+	hostscmd.Register(registry)
 	hookcmd.Register(registry)
 	networkcmd.Register(registry)
 	preflightcmd.Register(registry)
@@ -956,7 +1047,23 @@ func main() {
 			if err := handler(ctx); err != nil {
 				die(err.Error())
 			}
-			seedAfterUp(ctx, pname)
+			if !hasArgFlag(sub, "--skip-ready") {
+				if err := ensureProjectReady(ctx, pname, "", 0, false); err != nil {
+					die(err.Error())
+				}
+			}
+			return
+		}
+		if cmd == "restart" {
+			pname := composeProjectName(ctx.Project)
+			if err := handler(ctx); err != nil {
+				die(err.Error())
+			}
+			if !hasArgFlag(sub, "--skip-ready") {
+				if err := ensureProjectReady(ctx, pname, "", 0, false); err != nil {
+					die(err.Error())
+				}
+			}
 			return
 		}
 		if err := handler(ctx); err != nil {
@@ -969,6 +1076,7 @@ func main() {
 		mustProject(project)
 		n := "1"
 		doTmuxSync := false
+		skipReady := false
 		sessName := ""
 		namePrefix := "agent-"
 		cdPath := ""
@@ -981,6 +1089,8 @@ func main() {
 			switch sub[i] {
 			case "--tmux-sync":
 				doTmuxSync = true
+			case "--skip-ready":
+				skipReady = true
 			case "--session":
 				if i+1 < len(sub) {
 					sessName = sub[i+1]
@@ -1004,9 +1114,39 @@ func main() {
 			}
 		}
 		runner.Compose(dryRun, files, "up", "-d", "--scale", service+"="+n)
+		if !skipReady {
+			if err := ensureProjectReady(ctx, composeProjectName(project), service, mustAtoi(n), false); err != nil {
+				die(err.Error())
+			}
+		}
 		if doTmuxSync && !skipTmux() {
 			// Best effort: if tmux present, sync windows up to N
 			doSyncTmux(dryRun, paths, project, files, sessName, namePrefix, cdPath, mustAtoi(n), service)
+		}
+	case "ensure-ready":
+		mustProject(project)
+		svc := ""
+		count := 0
+		for i := 0; i < len(sub); i++ {
+			switch sub[i] {
+			case "--count":
+				if i+1 < len(sub) {
+					count = mustAtoi(sub[i+1])
+					i++
+				} else {
+					die("--count requires a value")
+				}
+			case "--service":
+				if i+1 < len(sub) {
+					svc = strings.TrimSpace(sub[i+1])
+					i++
+				} else {
+					die("--service requires a value")
+				}
+			}
+		}
+		if err := ensureProjectReady(ctx, composeProjectName(project), svc, count, true); err != nil {
+			die(err.Error())
 		}
 	case "layout-apply":
 		layoutPath := ""
@@ -1035,7 +1175,9 @@ func main() {
 			Network     *layout.Network
 			ComposeProj string
 			FileArgs    []string
-			RestoreEnv  func()
+			Env         map[string]string
+			OverlayCfg  config.OverlayConfig
+			OverlayDir  string
 		}
 		var overlayRuns []overlayRun
 		projMap := map[string]string{}
@@ -1052,12 +1194,23 @@ func main() {
 			if ovErr != nil {
 				die(ovErr.Error())
 			}
+			pname := resolveComposeProjectName(ovProj, ov.ComposeProject)
+			restoreProj := withComposeProject(pname)
 			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
+			if restoreProj != nil {
+				restoreProj()
+			}
 			if err != nil {
 				die(err.Error())
 			}
-			pname := resolveComposeProjectName(ovProj, ov.ComposeProject)
 			projMap[ovProj] = pname
+			var envCopy map[string]string
+			if len(ov.Env) > 0 {
+				envCopy = make(map[string]string, len(ov.Env))
+				for k, v := range ov.Env {
+					envCopy[k] = v
+				}
+			}
 			run := overlayRun{
 				Project:     ovProj,
 				Service:     ov.Service,
@@ -1067,7 +1220,9 @@ func main() {
 				Network:     ov.Network,
 				ComposeProj: pname,
 				FileArgs:    filesOv,
-				RestoreEnv:  pushOverlayEnv(ovCfg, ovDir, paths.Root, true),
+				Env:         envCopy,
+				OverlayCfg:  ovCfg,
+				OverlayDir:  ovDir,
 			}
 			if os.Getenv("DEVKIT_DEBUG") == "1" {
 				fmt.Fprintf(os.Stderr, "[layout] register overlay %s compose_project=%s profiles=%s\n", run.Project, run.ComposeProj, strings.TrimSpace(ov.Profiles))
@@ -1170,7 +1325,10 @@ func main() {
 		tracker := agentexec.NewSeedTracker()
 		for _, run := range overlayRuns {
 			ovProj := run.Project
-			restoreEnv := run.RestoreEnv
+			restoreEnv := combineRestorers(
+				pushOverlayEnv(run.OverlayCfg, run.OverlayDir, paths.Root, true),
+				pushEnvMap(run.Env),
+			)
 			svc := run.Service
 			if strings.TrimSpace(svc) == "" {
 				svc = "dev-agent"
@@ -1221,26 +1379,15 @@ func main() {
 			}
 		}
 		// 1b) Ensure per-overlay SSH/Git is ready (anchor HOME + keys + global sshCommand)
-		for _, ov := range lf.Overlays {
-			ovProj := strings.TrimSpace(ov.Project)
-			if ovProj == "" {
-				continue
-			}
-			ovCfg, ovDir, ovErr := config.ReadAll(paths.OverlayPaths, ovProj)
-			if ovErr != nil {
-				die(ovErr.Error())
-			}
-			restoreEnv := pushOverlayEnv(ovCfg, ovDir, paths.Root, true)
-			filesOv, err := compose.Files(paths, ovProj, ov.Profiles)
-			if err != nil {
-				if restoreEnv != nil {
-					restoreEnv()
-				}
-				die(err.Error())
-			}
-			svc := ov.Service
+		for _, run := range overlayRuns {
+			restoreEnv := combineRestorers(
+				pushOverlayEnv(run.OverlayCfg, run.OverlayDir, paths.Root, true),
+				pushEnvMap(run.Env),
+			)
+			filesOv := run.FileArgs
+			svc := run.Service
 			if strings.TrimSpace(svc) == "" {
-				svc = resolveService(ovProj, paths.OverlayPaths)
+				svc = resolveService(run.Project, paths.OverlayPaths)
 			} else {
 				svc = strings.TrimSpace(svc)
 			}
@@ -1250,12 +1397,50 @@ func main() {
 				}
 				continue
 			}
-			cnt := ov.Count
+			cnt := run.Count
 			if cnt < 1 {
 				cnt = 1
 			}
-			restoreProj := withComposeProject(projMap[ovProj])
-			configureSSHAndGit(dryRun, filesOv, ovProj, svc, cnt)
+			restoreProj := withComposeProject(run.ComposeProj)
+			configureSSHAndGit(dryRun, filesOv, run.Project, svc, cnt)
+			if restoreEnv != nil {
+				restoreEnv()
+			}
+			if restoreProj != nil {
+				restoreProj()
+			}
+		}
+		// 1c) Run overlay warm hooks after bring-up so template apply is ready-to-use.
+		for _, run := range overlayRuns {
+			warmScript := strings.TrimSpace(run.OverlayCfg.Hooks.Warm)
+			if warmScript == "" {
+				continue
+			}
+			restoreEnv := combineRestorers(
+				pushOverlayEnv(run.OverlayCfg, run.OverlayDir, paths.Root, true),
+				pushEnvMap(run.Env),
+			)
+			svc := strings.TrimSpace(run.Service)
+			if svc == "" {
+				svc = strings.TrimSpace(run.OverlayCfg.Service)
+			}
+			if svc == "" {
+				svc = resolveService(run.Project, paths.OverlayPaths)
+			}
+			if svc == "" {
+				svc = "dev-agent"
+			}
+			restoreProj := withComposeProject(run.ComposeProj)
+			fmt.Fprintf(os.Stderr, "[layout] warm overlay=%s service=%s\n", run.Project, svc)
+			if err := runner.ComposeWithProject(dryRun, run.ComposeProj, run.FileArgs, "exec", svc, "bash", "-lc", warmScript); err != nil {
+				if restoreEnv != nil {
+					restoreEnv()
+				}
+				if restoreProj != nil {
+					restoreProj()
+				}
+				die(fmt.Sprintf("layout-apply: warm hook failed for overlay %s: %v", run.Project, err))
+			}
 			if restoreEnv != nil {
 				restoreEnv()
 			}
@@ -2672,8 +2857,8 @@ func listTmuxWindows(session string) map[string]struct{} {
 }
 
 // buildWindowCmd composes the docker exec command for a given agent index and dest path using shared agentexec logic.
-func buildWindowCmd(fileArgs []string, project, idx, dest, service string, tracker *agentexec.SeedTracker) (string, error) {
-	return buildWindowCmdForProject(fileArgs, project, idx, dest, service, agentexec.ComposeProjectName(project), "", tracker)
+func buildWindowCmd(fileArgs []string, project, idx, dest, service, composeProject string, tracker *agentexec.SeedTracker) (string, error) {
+	return buildWindowCmdForProject(fileArgs, project, idx, dest, service, composeProject, "", tracker)
 }
 
 func buildWindowCmdForProject(fileArgs []string, project, idx, dest, service, composeProject, containerName string, tracker *agentexec.SeedTracker) (string, error) {
@@ -2696,7 +2881,7 @@ func buildWindowCmdForProject(fileArgs []string, project, idx, dest, service, co
 }
 
 func mustBuildWindowCmd(fileArgs []string, project, idx, dest, service string, tracker *agentexec.SeedTracker) string {
-	cmd, err := buildWindowCmd(fileArgs, project, idx, dest, service, tracker)
+	cmd, err := buildWindowCmd(fileArgs, project, idx, dest, service, "", tracker)
 	if err != nil {
 		die(err.Error())
 	}
@@ -2717,23 +2902,130 @@ func runAnchorPlan(dry bool, files []string, service, idx string, cfg seed.Ancho
 	}
 }
 
-func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
-	if ctx.DryRun {
-		return
+func hasArgFlag(args []string, flag string) bool {
+	flag = strings.TrimSpace(flag)
+	if flag == "" {
+		return false
 	}
-	svc := resolveService(ctx.Project, ctx.Paths.OverlayPaths)
-	if strings.TrimSpace(svc) == "" {
+	for _, a := range args {
+		if strings.TrimSpace(a) == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func isDevAllAutoReady(project string, paths compose.Paths) bool {
+	if strings.TrimSpace(project) != "dev-all" {
+		return false
+	}
+	cfg, _, err := config.ReadAll(paths.OverlayPaths, project)
+	if err == nil && cfg.Defaults.AutoReady != nil {
+		return *cfg.Defaults.AutoReady
+	}
+	return true
+}
+
+func isDevAllRequireWarm(project string, paths compose.Paths) bool {
+	if strings.TrimSpace(project) != "dev-all" {
+		return false
+	}
+	cfg, _, err := config.ReadAll(paths.OverlayPaths, project)
+	if err == nil && cfg.Defaults.RequireWarm != nil {
+		return *cfg.Defaults.RequireWarm
+	}
+	return true
+}
+
+func readDefaultRepo(project string, paths compose.Paths) string {
+	repo := "ouroboros-ide"
+	if strings.TrimSpace(project) != "dev-all" {
+		return repo
+	}
+	if cfg, _, err := config.ReadAll(paths.OverlayPaths, project); err == nil {
+		if strings.TrimSpace(cfg.Defaults.Repo) != "" {
+			repo = strings.TrimSpace(cfg.Defaults.Repo)
+		}
+	}
+	return repo
+}
+
+func ensureProjectReady(ctx *cmdregistry.Context, composeProject string, service string, count int, force bool) error {
+	project := strings.TrimSpace(ctx.Project)
+	if project == "" {
+		return fmt.Errorf("-p <project> is required")
+	}
+	if !force && !isDevAllAutoReady(project, ctx.Paths) {
+		return nil
+	}
+	if project != "dev-all" {
+		return nil
+	}
+
+	svc := strings.TrimSpace(service)
+	if svc == "" {
+		svc = resolveService(project, ctx.Paths.OverlayPaths)
+	}
+	if svc == "" {
 		svc = "dev-agent"
 	}
-	names := listServiceNamesProject(projectName, svc)
-	if len(names) == 0 {
-		names = listServiceNames(ctx.Files, svc)
+
+	pname := strings.TrimSpace(composeProject)
+	if pname == "" {
+		pname = composeProjectName(project)
 	}
-	cnt := len(names)
-	if cnt == 0 {
-		return
+	_, _, err := allow.EnsureSSHGitHub(ctx.Paths.Kit)
+	if err != nil {
+		return fmt.Errorf("ensure ssh.github.com allowlist: %w", err)
 	}
-	configureSSHAndGit(ctx.DryRun, ctx.Files, ctx.Project, svc, cnt)
+	if err := runner.ComposeWithProject(ctx.DryRun, pname, ctx.Files, "restart", "tinyproxy", "dns"); err != nil {
+		return fmt.Errorf("restart proxy/dns: %w", err)
+	}
+
+	if count < 1 {
+		names := listServiceNamesProject(pname, svc)
+		if len(names) == 0 {
+			names = listServiceNames(ctx.Files, svc)
+		}
+		count = len(names)
+	}
+	if count < 1 {
+		return fmt.Errorf("no running %s containers found for compose project %s", svc, pname)
+	}
+
+	configureSSHAndGit(ctx.DryRun, ctx.Files, project, svc, count)
+
+	overlayCfg, _, cfgErr := config.ReadAll(ctx.Paths.OverlayPaths, project)
+	if cfgErr != nil {
+		return cfgErr
+	}
+	warmScript := strings.TrimSpace(overlayCfg.Hooks.Warm)
+	requireWarm := isDevAllRequireWarm(project, ctx.Paths)
+	if warmScript == "" && requireWarm {
+		return fmt.Errorf("warm hook is required for %s but not defined", project)
+	}
+	if warmScript != "" {
+		if err := runner.ComposeWithProject(ctx.DryRun, pname, ctx.Files, "exec", svc, "bash", "-lc", warmScript); err != nil {
+			return fmt.Errorf("warm hook failed: %w", err)
+		}
+	}
+
+	repo := readDefaultRepo(project, ctx.Paths)
+	for i := 1; i <= count; i++ {
+		idx := fmt.Sprintf("%d", i)
+		repoPath := pth.AgentRepoPath(project, idx, repo)
+		anchor := anchorHome(project)
+		script := fmt.Sprintf(
+			"set -euo pipefail; export HOME=%q; test -f %q/.ssh/config; cd %q; GIT_SSH_COMMAND=\"ssh -F ~/.ssh/config\" git ls-remote --heads origin >/dev/null; if [ -f frontend/package.json ]; then test -x frontend/node_modules/.bin/tsc; npm --prefix frontend ls @playwright/test --depth=0 >/dev/null; fi",
+			anchor, anchor, repoPath,
+		)
+		execServiceIdx(ctx.DryRun, ctx.Files, svc, idx, script)
+	}
+	return nil
+}
+
+func seedAfterUp(ctx *cmdregistry.Context, projectName string) {
+	_ = ensureProjectReady(ctx, projectName, "", 0, false)
 }
 
 func configureSSHAndGit(dry bool, files []string, project string, service string, count int) {

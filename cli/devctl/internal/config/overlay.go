@@ -25,6 +25,10 @@ type Defaults struct {
 	BranchPrefix string `yaml:"branch_prefix"`
 	// Default compose profiles to apply (comma-separated)
 	Profiles string `yaml:"profiles"`
+	// Auto-run readiness (ssh+warm+validation) after lifecycle commands.
+	AutoReady *bool `yaml:"auto_ready"`
+	// Require warm hook for readiness (fail if missing).
+	RequireWarm *bool `yaml:"require_warm"`
 }
 
 type OverlayConfig struct {

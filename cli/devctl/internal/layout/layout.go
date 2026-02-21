@@ -9,11 +9,12 @@ import (
 )
 
 type Window struct {
-	Index   int    `yaml:"index"`
-	Path    string `yaml:"path"`
-	Name    string `yaml:"name"`
-	Service string `yaml:"service"`
-	Project string `yaml:"project"`
+	Index          int    `yaml:"index"`
+	Path           string `yaml:"path"`
+	Name           string `yaml:"name"`
+	Service        string `yaml:"service"`
+	Project        string `yaml:"project"`
+	ComposeProject string `yaml:"compose_project"`
 }
 
 type File struct {
@@ -23,13 +24,14 @@ type File struct {
 }
 
 type Overlay struct {
-	Project        string   `yaml:"project"`
-	Service        string   `yaml:"service"`
-	Count          int      `yaml:"count"`
-	Profiles       string   `yaml:"profiles"`
-	Build          bool     `yaml:"build"`
-	ComposeProject string   `yaml:"compose_project"`
-	Network        *Network `yaml:"network"`
+	Project        string            `yaml:"project"`
+	Service        string            `yaml:"service"`
+	Count          int               `yaml:"count"`
+	Profiles       string            `yaml:"profiles"`
+	Build          bool              `yaml:"build"`
+	ComposeProject string            `yaml:"compose_project"`
+	Network        *Network          `yaml:"network"`
+	Env            map[string]string `yaml:"env"`
 	// Optional: when targeting the dev-all overlay, request host-side git worktrees
 	// to be prepared before tmux windows are attached. This only applies to
 	// overlays where Project == "dev-all".
