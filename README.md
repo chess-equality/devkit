@@ -23,11 +23,12 @@ The preflight command validates Docker/Compose, tmux, SSH keys, and Codex creden
 
 - Build the CLI (one time): `cd devkit/cli/devctl && make build` (outputs `devkit/kit/bin/devctl`).
 - Verify the environment: `scripts/devkit preflight`.
-- Start the default stack: `devkit/kit/scripts/devkit up` (defaults to `-p codex`).
-- Open a shell inside agent 0: `devkit/kit/scripts/devkit exec 0 bash`.
-- Allow a new domain through the proxy: `devkit/kit/scripts/devkit allow example.com`.
-- Opt into extra hardening: `devkit/kit/scripts/devkit up --profile hardened,dns`.
-- Shut everything down: `devkit/kit/scripts/devkit down`.
+- Start the default stack: `scripts/devkit up` (defaults to `-p codex`).
+- Open a shell inside agent 0: `scripts/devkit exec 0 bash`.
+- Allow a new domain through the proxy: `scripts/devkit allow example.com`.
+- Sync ingress hostnames into host and agent `/etc/hosts`: `scripts/devkit -p codex hosts apply --target all --index 1`.
+- Opt into extra hardening: `scripts/devkit up --profile hardened,dns`.
+- Shut everything down: `scripts/devkit down`.
 
 Tip: both `scripts/devkit` and `devkit/kit/scripts/devkit` now build the Go CLI automatically if the binary is missing, so a fresh clone can jump straight to `scripts/devkit up`.
 
@@ -58,14 +59,14 @@ Credential pool (proposal, opt‑in):
    - `export DEVKIT_CODEX_CRED_MODE=pool`
    - `export DEVKIT_CODEX_POOL_DIR=/abs/path/to/pool`
    - Optional: `export DEVKIT_CODEX_POOL_STRATEGY=shuffle DEVKIT_CODEX_POOL_SEED=123`
-   - Dry run: `devkit/kit/scripts/devkit --dry-run fresh-open 2`
+   - Dry run: `scripts/devkit --dry-run fresh-open 2`
    - Details: `kit/docs/README.md` and `kit/docs/testing/credential-pool.md`.
 
 Essentials (batteries-included paths):
-- Hard reset + open N agents (alias): `devkit/kit/scripts/devkit reset 3` (same as `fresh-open 3`).
-- Scale agents without teardown: `devkit/kit/scripts/devkit scale 4`.
-- Scale and sync tmux windows: `devkit/kit/scripts/devkit scale 5 --tmux-sync`.
-- Per-agent SSH over 443: `devkit/kit/scripts/devkit ssh-setup --index 1` then `ssh-test 1`.
+- Hard reset + open N agents (alias): `scripts/devkit reset 3` (same as `fresh-open 3`).
+- Scale agents without teardown: `scripts/devkit scale 4`.
+- Scale and sync tmux windows: `scripts/devkit scale 5 --tmux-sync`.
+- Per-agent SSH over 443: `scripts/devkit ssh-setup --index 1` then `ssh-test 1`.
 
 Tooling caches:
 - SBT now writes to each agent's anchored home (`/workspace/.devhome/.sbt` or `/workspaces/dev/.devhome/.sbt` under `dev-all`) via `SBT_GLOBAL_BASE`. Ivy (`/home/dev/.ivy2`) and coursier (`/home/dev/.cache/coursier`) remain shared volumes to reuse downloaded artifacts.
@@ -73,19 +74,41 @@ Tooling caches:
 
 Worktrees (isolated branches per agent, dev-all overlay):
 - Defaults live in `overlays/dev-all/devkit.yaml` (repo, agents, base_branch, branch_prefix).
-- Bootstrap end-to-end: `devkit/kit/scripts/devkit -p dev-all bootstrap` (uses defaults) or `bootstrap ouroboros-ide 3`.
+- Bootstrap end-to-end: `scripts/devkit -p dev-all bootstrap` (uses defaults) or `bootstrap ouroboros-ide 3`.
 - Create/verify manually:
-  - Setup: `devkit/kit/scripts/devkit -p dev-all worktrees-setup ouroboros-ide 3`
-  - Open windows: `devkit/kit/scripts/devkit -p dev-all worktrees-tmux ouroboros-ide 3`
+  - Setup: `scripts/devkit -p dev-all worktrees-setup ouroboros-ide 3`
+  - Open windows: `scripts/devkit -p dev-all worktrees-tmux ouroboros-ide 3`
+
+Image rebuild note (`ouro8`/`dev-all`):
+- `overlays/dev-all/compose.override.yml` pins `dev-agent` to `image: local/dev-agent:codex` and does not build it.
+- Rebuild `local/dev-agent:codex` through the codex overlay when Codex/Dockerfile args change:
+  - `cd devkit && DEVKIT_WORKTREE_ROOT=/home/bayesartre/dev/agent-worktrees docker compose -p devkit-codex-build -f kit/compose.yml -f overlays/codex/compose.override.yml build --no-cache dev-agent`
+- Then recreate the ouro8 stack so agents pick up the new image:
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 down`
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 up`
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 scale 8`
+  - `cd /home/bayesartre/dev && DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 tmux-sync --session devkit`
+
+Auto-readiness (`dev-all`):
+- `up`, `restart`, and `scale` now run readiness automatically for `dev-all`:
+  - SSH/bootstrap for all running agents
+  - overlay `warm` hook
+  - validation (`git ls-remote`, frontend `tsc`, `@playwright/test`)
+- Run explicitly when needed: `scripts/devkit -p dev-all ensure-ready [--count N] [--service dev-agent]`
+- Bypass only for emergencies: append `--skip-ready` to `up`, `restart`, or `scale`.
+- Go is installed in the dev-agent image; warm no longer bootstraps Go from `go.dev`.
+- Warm ensures `@playwright/test` is installed and runs `playwright install chromium` in frontend repos.
+- Warm also materializes `/workspaces/dev/agent-worktrees/agent1/<repo>` as a compatibility link to the root repo mount.
+- Warm also ensures the Playwright CLI package (`playwright`) is present, aligned with `microsoft/playwright-cli` deprecation to `npx playwright`.
 
 Tmux ergonomics (new):
-- Sync windows to running agents: `devkit/kit/scripts/devkit tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH]`.
+- Sync windows to running agents: `scripts/devkit tmux-sync [--session NAME] [--count N] [--name-prefix PFX] [--cd PATH]`.
   - Defaults: session `devkit:<project>`, names `agent-<n>`, cd to `/workspace` (codex) or `/workspaces/dev[/agentN]` (dev-all).
-- Add a single window at a path: `devkit/kit/scripts/devkit tmux-add-cd <index> <subpath> [--session NAME] [--name NAME]`.
-  - Example (dev-all): `devkit/kit/scripts/devkit -p dev-all tmux-add-cd 2 dumb-onion-hax --name doh-2`.
+- Add a single window at a path: `scripts/devkit tmux-add-cd <index> <subpath> [--session NAME] [--name NAME]`.
+  - Example (dev-all): `scripts/devkit -p dev-all tmux-add-cd 2 dumb-onion-hax --name doh-2`.
   - Use the same `--session` across overlays to mix images in one tmux.
 - Target a different service (non-default): append `--service <name>` to `tmux-sync`, `tmux-add-cd`, or `scale --tmux-sync`.
-- Apply a layout file (YAML): `devkit/kit/scripts/devkit tmux-apply-layout --file tmux.yaml [--session NAME]`.
+- Apply a layout file (YAML): `scripts/devkit tmux-apply-layout --file tmux.yaml [--session NAME]`.
   - Example tmux.yaml:
     session: devkit:mixed
     windows:
@@ -94,6 +117,7 @@ Tmux ergonomics (new):
         name: ouro-1
         service: dev-agent
         # project: dev-all     # optional; defaults to current -p
+        # compose_project: devkit-ouro8   # optional; override compose project per window
       - index: 2
         path: dumb-onion-hax
         name: doh-2
@@ -101,8 +125,9 @@ Tmux ergonomics (new):
 
 Declarative orchestration (new):
 - Bring up overlays and then attach tmux from a single YAML:
-  - `devkit/kit/scripts/devkit layout-apply --file orchestration.yaml`
-  - Generate a YAML from running containers: `devkit/kit/scripts/devkit layout-generate --service dev-agent --output orchestration.yaml`
+  - `scripts/devkit layout-apply --file orchestration.yaml`
+  - `layout-apply` now runs each overlay `hooks.warm` after startup so template applies are ready-to-use without manual warmup.
+  - Generate a YAML from running containers: `scripts/devkit layout-generate --service dev-agent --output orchestration.yaml`
   - orchestration.yaml example:
     session: devkit:mixed
     overlays:

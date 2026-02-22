@@ -3,9 +3,10 @@ FROM node:20-bullseye
 ARG INSTALL_CODEX=true
 ARG INSTALL_CLAUDE=true
 ARG CLAUDE_INSTALL_TIMEOUT=1200
-ARG CODEX_VERSION="rust-v0.77.0"
+ARG CODEX_VERSION="rust-v0.101.0"
 ARG CODEX_ASSET="codex-x86_64-unknown-linux-musl.tar.gz"
 ARG CODEX_SHA256=""
+ARG SPAGO_VERSION="0.93.45"
 
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash","-lc"]
@@ -20,6 +21,10 @@ RUN apt-get update \
 
 # Ensure npm is up to date before global installs
 RUN npm install -g npm@latest
+
+# Install Spago (PureScript build tool)
+RUN npm install -g "spago@${SPAGO_VERSION}" \
+ && spago --version
 
 # Install uv (provides `uv` and `uvx`) to /usr/local/bin
 RUN curl -fsSL https://astral.sh/uv/install.sh -o /tmp/install-uv.sh \

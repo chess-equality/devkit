@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"devkit/cli/devctl/internal/agentexec"
 	"devkit/cli/devctl/internal/config"
 )
 
@@ -59,7 +60,7 @@ func buildCaddyFragment(project string, cfg *config.IngressConfig, overlayDir st
 			fallbackKey = dest
 		}
 	}
-	configSrc, err := ensureConfigFile(tmpDir, cfg, overlayDir, root, mounted, &volumes, fallbackCert, fallbackKey)
+	configSrc, err := ensureConfigFile(project, tmpDir, cfg, overlayDir, root, mounted, &volumes, fallbackCert, fallbackKey)
 	if err != nil {
 		return out, err
 	}
@@ -107,7 +108,7 @@ func writeCompose(path string, volumes []string, extraEnv map[string]string) err
 	return nil
 }
 
-func ensureConfigFile(tmpDir string, cfg *config.IngressConfig, overlayDir, root string, mounted map[string]string, volumes *[]string, fallbackCert, fallbackKey string) (string, error) {
+func ensureConfigFile(project string, tmpDir string, cfg *config.IngressConfig, overlayDir, root string, mounted map[string]string, volumes *[]string, fallbackCert, fallbackKey string) (string, error) {
 	if strings.TrimSpace(cfg.Config) != "" {
 		return resolvePath(cfg.Config, overlayDir, root), nil
 	}
@@ -118,7 +119,7 @@ func ensureConfigFile(tmpDir string, cfg *config.IngressConfig, overlayDir, root
 	var b strings.Builder
 	for _, route := range cfg.Routes {
 		host := strings.TrimSpace(route.Host)
-		svc := strings.TrimSpace(route.Service)
+		svc := resolveServiceName(strings.TrimSpace(route.Service), project)
 		if host == "" || svc == "" || route.Port <= 0 {
 			return "", fmt.Errorf("ingress: invalid route %+v", route)
 		}
@@ -139,6 +140,24 @@ func ensureConfigFile(tmpDir string, cfg *config.IngressConfig, overlayDir, root
 		return "", err
 	}
 	return dest, nil
+}
+
+func resolveServiceName(service string, project string) string {
+	if service == "" {
+		return service
+	}
+	composeProject := strings.TrimSpace(agentexec.ComposeProjectName(project))
+	if strings.Contains(service, "{project}") && composeProject != "" {
+		return strings.ReplaceAll(service, "{project}", composeProject)
+	}
+	const agentPrefix = "dev-agent@"
+	if strings.HasPrefix(service, agentPrefix) && composeProject != "" {
+		index := strings.TrimSpace(strings.TrimPrefix(service, agentPrefix))
+		if index != "" {
+			return fmt.Sprintf("%s-dev-agent-%s", composeProject, index)
+		}
+	}
+	return service
 }
 
 func resolveRouteCerts(route config.IngressRoute, overlayDir, root string, mounted map[string]string, volumes *[]string, fallbackCert, fallbackKey string) (string, string, error) {

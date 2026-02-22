@@ -17,6 +17,8 @@ Dev Kit — Base Kit Details
 - `devkit/kit/scripts/devkit -p <project> up|down|status|exec|logs|allow|warm|maintain|check-net` (wrapper in-repo; defaults to `-p codex`).
   - `up` now performs a best-effort cleanup of any lingering proxy/DNS containers for the target compose project before recreating the stack.
   - After the stack is healthy, each running `dev-agent` automatically receives a proxy-aware SSH config plus copies of your host keys (`~/.ssh/id_ed25519` / `id_rsa` / `known_hosts` when present) and a locked `core.sshCommand` pointing at that config. Fresh containers can immediately `git pull` via `ssh.github.com:443` without running `ssh-setup` manually; if you need to reseed later (or provide an alternate key path) you can still invoke `ssh-setup`.
+  - The dev-agent entrypoint cleans up stale `.gitconfig.lock` files in devkit home mounts. If you need to tune how long a lock must sit before deletion, set `DEVKIT_GIT_LOCK_MAX_AGE_SECS` (default `5`).
+  - Use `--compose-project <name>` to target a non-default compose project (for example, when the overlay is running under a custom `-p`).
   - If the CLI binary is missing, the wrapper runs `make -C devkit/cli/devctl build` automatically before executing commands.
 - Or call the binary directly after build: `devkit/kit/bin/devctl -p <project> ...`.
   - Monorepo overlay: use `-p dev-all` to mount the entire dev root at `/workspaces/dev`.
@@ -38,6 +40,7 @@ Dev Kit — Base Kit Details
             service: dev-agent
     - Orchestrate overlays + tmux from one file:
       - `scripts/devctl layout-apply --file orchestration.yaml`
+      - `layout-apply` runs overlay `hooks.warm` automatically after startup.
       - See devkit/README.md for a full example.
   - Isolation plan: see `isolation.md` for worktrees + per‑agent HOME design.
   - Worktrees + SSH workflow: see `worktrees_ssh.md` for end‑to‑end flows (`bootstrap`, `worktrees-*`, `open`).
@@ -135,6 +138,26 @@ Worktrees workflow (dev-all overlay):
 - Setup per-agent branches + worktrees that track `origin/<base>`: `devctl -p dev-all worktrees-setup <repo> <count> [--base agent] [--branch main]`.
 - Bootstrap using defaults from `overlays/dev-all/devkit.yaml`: `devctl -p dev-all bootstrap`.
 - Open tmux across worktrees: `devctl -p dev-all worktrees-tmux <repo> <count>`.
+
+Image rebuild note (`ouro8` / `dev-all`):
+- `dev-all` reuses `image: local/dev-agent:codex`; it does not rebuild `dev-agent`.
+- Rebuild via the codex overlay first:
+  - `cd devkit && DEVKIT_WORKTREE_ROOT=/home/bayesartre/dev/agent-worktrees docker compose -p devkit-codex-build -f kit/compose.yml -f overlays/codex/compose.override.yml build --no-cache dev-agent`
+- Then recreate and resync the ouro8 stack:
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 down`
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 up`
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 scale 8`
+  - `DEVKIT_INTERNAL_SUBNET=172.30.40.0/24 DEVKIT_DNS_IP=172.30.40.53 scripts/devkit -p dev-all --compose-project devkit-ouro8 tmux-sync --session devkit`
+
+Auto-readiness (`dev-all`):
+- Lifecycle commands `up`, `restart`, and `scale` automatically run readiness for `dev-all`.
+- Readiness includes SSH bootstrap, warm hook execution, and validation (`git ls-remote`, frontend `tsc`, `@playwright/test`).
+- Manual invocation: `devctl -p dev-all ensure-ready [--count N] [--service dev-agent]`.
+- Escape hatch: append `--skip-ready` to lifecycle commands.
+- Go is image-baked for dev-agent; warm no longer downloads Go at runtime.
+- Warm ensures frontend Playwright browser binaries are present (`playwright install chromium`).
+- Warm creates an `agent1` compatibility path under `agent-worktrees` pointing at the root repo mount.
+- Warm ensures the Playwright CLI package (`playwright`) is available (the archived `microsoft/playwright-cli` flow now maps to `npx playwright`).
 
 Convenience targets to validate the codex overlay end‑to‑end:
 

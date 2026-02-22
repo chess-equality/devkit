@@ -45,3 +45,11 @@ example.org
 claude.ai
 anthropic.com
 release-assets.githubusercontent.com
+packages.registry.purescript.org
+cdn.playwright.dev
+playwright.azureedge.net
+storage.googleapis.com
+playwright.download.prss.microsoft.com
+fonts.googleapis.com
+fonts.gstatic.com
+ouroboros-ai.com
