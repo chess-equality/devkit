@@ -1856,7 +1856,7 @@ func main() {
 		if len(sub) > 0 {
 			idx = sub[0]
 		}
-		home := "/workspace/.devhome-agent" + idx
+		home := fmt.Sprintf("/workspace/.devhome-agent%s", idx)
 		script := fmt.Sprintf(`set -e
 export HOME='%s'
 export CODEX_HOME='%s/.codex'
@@ -1987,7 +1987,7 @@ exit 0`, home, home, home, home, home)
 		}
 		// Interactive shell: no timeout, index-free anchor
 		svc := resolveService(project, paths.OverlayPaths)
-		anchor := "/workspace/.devhome"
+		anchor := agentexec.AnchorHome(project)
 		base := "/workspace/.devhomes"
 		if project == "dev-all" {
 			base = "/workspaces/dev/.devhomes"
@@ -2249,12 +2249,9 @@ exit 0`, home, home, home, home, home)
 				repoName = cfg.Defaults.Repo
 			}
 		}
-		// Index-free anchor home: /workspace/.devhome -> base/.devhomes/<container-id>
-		anchor := "/workspace/.devhome"
-		base := "/workspace/.devhomes"
-		if project == "dev-all" {
-			base = "/workspaces/dev/.devhomes"
-		}
+		// Index-free anchor home: /workspace/.devhome (or /workspaces/dev/.devhome for dev-all)
+		anchor := agentexec.AnchorHome(project)
+		base := agentexec.AnchorBase(project)
 		{
 			svc := resolveService(project, paths.OverlayPaths)
 			runAnchorPlan(dryRun, files, svc, idx, seed.AnchorConfig{Anchor: anchor, Base: base, SeedCodex: true})
@@ -2274,10 +2271,11 @@ exit 0`, home, home, home, home, home)
 		// Determine which keys are present; prefer ed25519 and include rsa if available
 		hasEd := len(edBytes) > 0
 		hasRsa := len(rsaBytes) > 0
-		if !hasEd && strings.HasSuffix(hostKey, "id_ed25519") && len(keyBytes) > 0 {
+		selectedKey := filepath.Base(hostKey)
+		if !hasEd && strings.HasPrefix(selectedKey, "id_ed25519") && len(keyBytes) > 0 {
 			hasEd = true
 		}
-		if !hasRsa && strings.HasSuffix(hostKey, "id_rsa") && len(keyBytes) > 0 {
+		if !hasRsa && strings.HasPrefix(selectedKey, "id_rsa") && len(keyBytes) > 0 {
 			hasRsa = true
 		}
 		cfg := sshcfg.BuildGitHubConfigFor(anchor, hasEd, hasRsa)
@@ -2321,7 +2319,7 @@ exit 0`, home, home, home, home, home)
 		if len(sub) > 0 {
 			idx = sub[0]
 		}
-		anchor := "/workspace/.devhome"
+		anchor := agentexec.AnchorHome(project)
 		{
 			script := fmt.Sprintf("set -e; export HOME=%q; cfg=\"$HOME/.ssh/config\"; ssh -F \"$cfg\" -T github.com -o BatchMode=yes || true", anchor)
 			svc := resolveService(project, paths.OverlayPaths)
@@ -2345,7 +2343,7 @@ exit 0`, home, home, home, home, home)
 		if repo == "." || repo == "" {
 			dest = base
 		}
-		home := "/workspace/.devhome-agent" + idx
+		home := pth.AgentHomePath(project, idx, repo)
 		cmd := "set -euo pipefail; export HOME='" + home + "'; cd '" + dest + "'; url=$(git remote get-url origin 2>/dev/null || true); if [ -z \"$url\" ]; then echo 'No origin remote configured' >&2; exit 1; fi; if [[ \"$url\" =~ ^https://github.com/([^/]+)/([^/.]+)(\\.git)?$ ]]; then newurl=git@github.com:${BASH_REMATCH[1]}/${BASH_REMATCH[2]}.git; echo Setting SSH origin to \"$newurl\"; git remote set-url origin \"$newurl\"; else echo \"Origin already SSH: $url\"; fi"
 		{
 			svc := resolveService(project, paths.OverlayPaths)
@@ -2396,7 +2394,7 @@ exit 0`, home, home, home, home, home)
 		if repo == "." || repo == "" {
 			dest = base
 		}
-		home := "/workspace/.devhome-agent" + idx
+		home := pth.AgentHomePath(project, idx, repo)
 		cmd := "set -euo pipefail; home=\"" + home + "\"; export HOME=\"$home\"; cd '" + dest + "'; cur=$(git rev-parse --abbrev-ref HEAD); url=$(git remote get-url origin 2>/dev/null || true); if [ -z \"$url\" ]; then echo 'No origin remote configured' >&2; exit 1; fi; if [[ \"$url\" =~ ^https://github.com/([^/]+)/([^/.]+)(\\.git)?$ ]]; then newurl=git@github.com:${BASH_REMATCH[1]}/${BASH_REMATCH[2]}.git; echo Setting SSH origin to \"$newurl\"; git remote set-url origin \"$newurl\"; fi; echo Pushing branch \"$cur\" to origin...; GIT_SSH_COMMAND=\"ssh -F \\\"$home/.ssh/config\\\"\" git push -u origin HEAD"
 		{
 			svc := resolveService(project, paths.OverlayPaths)
@@ -2735,7 +2733,7 @@ exit 0`, home, home, home, home, home)
 			repoPath := filepath.Join(devRoot, repo)
 			runner.Host(dryRun, "git", "-C", repoPath, "fetch", "--all", "--prune")
 			runner.Host(dryRun, "git", "-C", repoPath, "config", "push.default", "upstream")
-			runner.Host(dryRun, "git", "-C", repoPath, "config", "worktree.useRelativePaths", "true")
+			runner.Host(dryRun, "git", "-C", repoPath, "config", "worktree.useRelativePaths", "false")
 			base := "agent"
 			baseBranch := "main"
 			cfg, _, _ := config.ReadAll(paths.OverlayPaths, project)
