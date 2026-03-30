@@ -151,7 +151,7 @@ func Setup(devkitRoot, repo string, n int, baseBranch, branchPrefix string, dry 
 	if err := run(dry, "env", envGit("-C", repoPath, "config", "push.default", "upstream")...); err != nil {
 		return err
 	}
-	if err := run(dry, "env", envGit("-C", repoPath, "config", "worktree.useRelativePaths", "true")...); err != nil {
+	if err := run(dry, "env", envGit("-C", repoPath, "config", "worktree.useRelativePaths", "false")...); err != nil {
 		return err
 	}
 	// agent1 uses primary path
